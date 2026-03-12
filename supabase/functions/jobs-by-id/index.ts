@@ -11,7 +11,6 @@ Deno.serve(async (req: Request) => {
   const identity = await getUserFromRequest(req);
   if (!identity) return errorResponse("Unauthorized", 401);
 
-  // Extract job ID from URL: /jobs-by-id?id=<uuid>
   const url = new URL(req.url);
   const id = validateUUID(url.searchParams.get("id"));
   if (!id) return errorResponse("Invalid or missing job ID", 400);

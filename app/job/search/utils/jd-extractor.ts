@@ -1,4 +1,3 @@
-// Client-side JD extraction utilities
 import { sfn } from "@/lib/supabase-api";
 
 interface ExtractedJDData {

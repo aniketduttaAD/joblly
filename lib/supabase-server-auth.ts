@@ -9,7 +9,6 @@ function getSupabaseUrl(): string {
 }
 
 function getAnonKey(): string {
-  // Reuse the existing publishable key env var
   return (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY ?? "").trim();
 }
 

@@ -315,7 +315,6 @@ export async function updateJob(
     updatedAt: new Date().toISOString(),
   };
 
-  // Only update job columns — owner fields (ownerId, ownerEmail, ownerName) are immutable after creation.
   const supabase = createSupabaseClient();
   const row = toStoredJobRow(merged, {
     userId: ownerId,
@@ -428,11 +427,6 @@ export async function deleteJobs(ids: string[], ownerId: string): Promise<number
   return count ?? 0;
 }
 
-/**
- * Fulltext search across title and company for a specific user.
- * Uses the DB fulltext indexes — no in-memory filtering.
- * Returns all matching rows ordered by appliedAt desc.
- */
 export async function searchJobsByTitleCompany(
   ownerId: string,
   q: string,

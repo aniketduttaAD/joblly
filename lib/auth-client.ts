@@ -63,10 +63,6 @@ export async function sendEmailOtp(email: string): Promise<{ userId: string }> {
   return { userId: trimmedEmail };
 }
 
-/**
- * Verifies the 6-digit OTP. On success, stores the Supabase access token
- * in localStorage for use in subsequent authenticated requests.
- */
 export async function verifyEmailOtp(userId: string, secret: string): Promise<AuthUser> {
   const email = userId.trim().toLowerCase();
   const token = secret.trim();
@@ -101,9 +97,6 @@ export async function verifyEmailOtp(userId: string, secret: string): Promise<Au
   };
 }
 
-/**
- * Signs the user out and clears the stored access token.
- */
 export async function signOut(): Promise<void> {
   try {
     const token = getStoredToken();
@@ -114,17 +107,11 @@ export async function signOut(): Promise<void> {
       });
     }
   } catch {
-    // Best-effort; token cleared regardless.
   } finally {
     clearToken();
   }
 }
 
-/**
- * Authenticated fetch wrapper. Automatically injects `Authorization: Bearer`
- * from the stored Supabase access token. Also sets Content-Type: application/json
- * for non-multipart/blob bodies — preserving the original behaviour.
- */
 export async function fetchWithAuth(
   input: RequestInfo | URL,
   init: RequestInit = {}

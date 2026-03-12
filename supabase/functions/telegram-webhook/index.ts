@@ -46,8 +46,6 @@ const VALID_STATUSES: JobStatus[] = [
   "withdrawn",
 ];
 
-// In-memory pending state — acceptable for stateless edge functions
-// (TTL checks prevent stale state from causing issues across instances)
 const pendingAddByChat = new Map<number, number>();
 const pendingSearchByChat = new Map<number, number>();
 
@@ -99,24 +97,15 @@ function getTelegramReloginMessage(linkedUser: TelegramChatLink | null): string 
   return `🔐 Your Telegram session for <b>${label}</b> has expired or is invalid. Send <code>/login ${linkedUser.email}</code> to receive a new 6-digit code.`;
 }
 
-/**
- * Sends Supabase Auth OTP to the given email.
- * Returns the email (Supabase doesn't return a userId before verification).
- */
 async function sendSupabaseOtp(email: string): Promise<void> {
   const supabase = createAdminClient();
-  // Use admin to trigger OTP send without needing a client-side context
   const { error } = await supabase.auth.admin.generateLink({
     type: "magiclink",
     email,
   });
-  // generateLink for magiclink doesn't send an email; use signInWithOtp instead
   if (error) throw new Error(error.message);
 }
 
-/**
- * Sends a Supabase OTP email using the REST API directly (works server-side).
- */
 async function sendOtpEmail(email: string): Promise<void> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -208,7 +197,7 @@ async function ensureTelegramAuthenticated(
       await createTelegramLoginChallenge({
         chatId,
         email,
-        userId: "", // filled after OTP verification
+        userId: "",
         phrase: null,
         expiresAt: new Date(Date.now() + PENDING_OTP_TTL_MS).toISOString(),
       });
@@ -478,7 +467,6 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return errorResponse("Method not allowed", 405);
 
-  // Secret validation
   const secret = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
   if (secret) {
     const url = new URL(req.url);

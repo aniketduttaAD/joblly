@@ -33,7 +33,6 @@ Deno.serve(async (req: Request) => {
 
   const incomingJobs = body.jobs as JobRecord[];
 
-  // Deduplicate against existing jobs by title|company
   const { jobs: existingJobs } = await readJobs(identity.userId);
   const existingKeys = new Set(
     existingJobs.map((j) => `${j.title.toLowerCase()}|${j.company.toLowerCase()}`)

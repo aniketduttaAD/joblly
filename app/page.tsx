@@ -150,9 +150,7 @@ export default function HomePage() {
           },
         });
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [appFetch]);
 
   useEffect(() => {
@@ -177,7 +175,6 @@ export default function HomePage() {
       return;
     }
 
-    // Show pending indicator immediately so the user knows input was captured
     setSearchLoading(true);
 
     let cancelled = false;
@@ -697,9 +694,7 @@ export default function HomePage() {
         if (res.ok && Array.isArray(data.jobs)) {
           dbJobs = data.jobs as JobRecord[];
         }
-      } catch {
-        // Fall back to in-memory jobs if DB fetch fails.
-      }
+      } catch {}
 
       setImportProgress({ ...progress, phase: "checking" });
 

@@ -14,13 +14,10 @@ Deno.serve(async (req: Request) => {
   try {
     const supabase = createAdminClient();
     await supabase.auth.admin.signOut(identity.userId);
-  } catch {
-    // non-fatal — user is signed out on client side regardless
-  }
+  } catch {}
 
   const response = jsonResponse({ success: true });
 
-  // Clear session cookies
   const headers = new Headers(response.headers);
   headers.append("Set-Cookie", `sb-access-token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`);
   headers.append("Set-Cookie", `sb-refresh-token=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`);

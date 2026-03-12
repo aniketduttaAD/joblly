@@ -2,8 +2,6 @@ import { createAdminClient } from "./auth.ts";
 import type { JobRecord, JobStatus, TechStackNormalized, Resume, ParsedResume } from "./types.ts";
 import type { AuthenticatedUserIdentity } from "./auth.ts";
 
-// ─── Jobs ────────────────────────────────────────────────────────────────────
-
 function rowToJobRecord(row: Record<string, unknown>): JobRecord {
   return {
     id: (row.job_id as string) || (row.id as string),
@@ -251,8 +249,6 @@ export async function searchJobsByTitleCompany(
   return { jobs, total: jobs.length };
 }
 
-// ─── Resumes ─────────────────────────────────────────────────────────────────
-
 function rowToResume(row: Record<string, unknown>): Resume {
   return {
     id: row.id as string,
@@ -384,12 +380,9 @@ export async function deleteResume(id: string, ownerId: string): Promise<boolean
 
   if (error) throw error;
 
-  // Delete from Supabase storage
   try {
     await supabase.storage.from("resumes").remove([`${ownerId}/${id}`]);
-  } catch {
-    // non-fatal
-  }
+  } catch {}
 
   return true;
 }
@@ -412,8 +405,6 @@ export async function getResumeFileInfo(
     fileName: data.source_file_name as string,
   };
 }
-
-// ─── User Identity ────────────────────────────────────────────────────────────
 
 export interface TelegramChatLink extends AuthenticatedUserIdentity {
   chatId: number;
@@ -524,8 +515,6 @@ export async function clearTelegramLoginChallenge(chatId: number): Promise<void>
   await supabase.from("telegram_login_challenges").delete().eq("chat_id", String(chatId));
 }
 
-// ─── Sessions ─────────────────────────────────────────────────────────────────
-
 const SESSION_TTL_MS = 15 * 24 * 60 * 60 * 1000;
 
 export async function createSession(
@@ -538,7 +527,6 @@ export async function createSession(
   const expiresAt = new Date(Date.now() + ttlMs).toISOString();
   const now = new Date().toISOString();
 
-  // Upsert by session_type + identifier
   const { error } = await supabase.from("sessions").upsert(
     {
       session_id: sessionId,

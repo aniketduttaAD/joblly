@@ -9,7 +9,6 @@ interface ChatStore {
   isLoading: boolean;
   error: string | null;
 
-  // Actions
   loadChats: () => Promise<void>;
   createChat: (resumeId: string, jdId: string, title?: string) => Promise<string>;
   selectChat: (id: string) => Promise<void>;
@@ -36,7 +35,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const chats = await db.chats.toArray();
-      // Load messages for each chat
       const chatsWithMessages = await Promise.all(
         chats.map(async (chat) => {
           const messages = await db.messages.where("chatId").equals(chat.id).sortBy("timestamp");
@@ -83,7 +81,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       ...messageData,
       id: crypto.randomUUID(),
       timestamp: new Date(),
-      chatId, // Store chatId with message for proper indexing and persistence
+      chatId,
     };
 
     await db.messages.add(message);
@@ -115,12 +113,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     await db.chats.add(newChat);
 
-    // Duplicate messages
     for (const msg of messages) {
       await db.messages.add({
         ...msg,
         id: crypto.randomUUID(),
-        chatId: newId, // Update chatId for duplicated messages
+        chatId: newId,
         timestamp: new Date(),
       });
     }
@@ -130,7 +127,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   deleteChat: async (id) => {
-    // Delete all messages first
     await db.messages.where("chatId").equals(id).delete();
     await db.chats.delete(id);
     await get().loadChats();

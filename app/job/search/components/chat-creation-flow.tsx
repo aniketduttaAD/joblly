@@ -29,16 +29,12 @@ export function ChatCreationFlow() {
 
   useEffect(() => {
     setChatCreationState({ jdText });
-    // Check API key on mount
     setApiKeyExists(hasApiKey());
-
-    // Listen for storage changes (when API key is updated)
     const handleStorageChange = () => {
       setApiKeyExists(hasApiKey());
     };
     window.addEventListener("storage", handleStorageChange);
 
-    // Also listen for custom event (for same-tab updates)
     window.addEventListener("apiKeyUpdated", handleStorageChange);
 
     return () => {
@@ -53,7 +49,6 @@ export function ChatCreationFlow() {
   const handleCreateChat = async () => {
     if (!canCreateChat || !selectedResumeId) return;
 
-    // Double-check API key before creating chat
     if (!hasApiKey()) {
       alert(
         'Please set your OpenAI API key first. Use "Set API Key" in the bar at the top of the app.'
@@ -63,11 +58,9 @@ export function ChatCreationFlow() {
 
     setIsCreating(true);
     try {
-      // Extract JD information first
       const { extractJDInfo } = await import("@/app/job/search/utils/jd-extractor");
       const extracted = await extractJDInfo(jdText);
 
-      // Create JD first (with temporary chatId, will be updated)
       const tempChatId = "temp-" + crypto.randomUUID();
       const jdId = await addJD({
         chatId: tempChatId,
@@ -75,25 +68,19 @@ export function ChatCreationFlow() {
         extracted,
       });
 
-      // Create chat
       const chatId = await createChat(selectedResumeId, jdId);
 
-      // Update JD with actual chatId
       const jdStore = useJDStore.getState();
       await jdStore.updateJD(jdId, { chatId });
 
-      // Generate JD embeddings (async, don't block navigation)
       try {
         const jd = await jdStore.getJD(jdId);
         if (jd) {
           const { generateJDEmbeddings } = await import("@/app/job/search/utils/embeddings");
           await generateJDEmbeddings(jd);
         }
-      } catch (error) {
-        // Don't fail chat creation if embedding generation fails
-      }
+      } catch (error) {}
 
-      // Navigate to chat
       router.push(`/job/search/chat/${chatId}`);
       resetChatCreation();
     } catch (error) {
@@ -111,7 +98,6 @@ export function ChatCreationFlow() {
         </p>
       </div>
 
-      {/* Resume Selection */}
       <Card>
         <CardHeader>
           <CardTitle>Step 1: Select Resume</CardTitle>
@@ -165,7 +151,6 @@ export function ChatCreationFlow() {
         </CardContent>
       </Card>
 
-      {/* JD Input */}
       <Card>
         <CardHeader>
           <CardTitle>Step 2: Provide Job Description</CardTitle>
@@ -182,7 +167,6 @@ export function ChatCreationFlow() {
         </CardContent>
       </Card>
 
-      {/* Confirmation & Create */}
       <Card>
         <CardHeader>
           <CardTitle>Step 3: Confirm & Create</CardTitle>

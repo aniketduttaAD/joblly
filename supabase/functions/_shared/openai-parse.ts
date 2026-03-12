@@ -1,11 +1,4 @@
-/**
- * Full JD parse pipeline for Supabase Edge Functions.
- * Inlines all lib/parse/* modules, adapted for Deno runtime.
- */
-
 import type { JobRecord, TechStackNormalized } from "./types.ts";
-
-// ─── Constants ────────────────────────────────────────────────────────────────
 
 const JD_PARSE_MODEL = "gpt-4o-mini";
 const MAX_JD_CHARS = 60_000;
@@ -26,8 +19,6 @@ const DEFAULT_EXCHANGE_RATES: Record<string, number> = {
   JPY: 0.56,
   CHF: 93.5,
 };
-
-// ─── Errors ───────────────────────────────────────────────────────────────────
 
 export class ParseError extends Error {
   constructor(
@@ -66,8 +57,6 @@ function isNonRetryableError(error: Error): boolean {
   ];
   return patterns.some((p) => error.message.includes(p));
 }
-
-// ─── Utils ────────────────────────────────────────────────────────────────────
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -149,8 +138,6 @@ async function retryWithBackoff<T>(fn: () => Promise<T>, maxRetries = MAX_RETRIE
   throw lastError || new Error("Parse failed after retries");
 }
 
-// ─── False Positives Filter ───────────────────────────────────────────────────
-
 const FALSE_POSITIVES = new Set([
   "on-site",
   "onsite",
@@ -205,8 +192,6 @@ export function filterFalsePositives(techStack: string[]): string[] {
     return true;
   });
 }
-
-// ─── Tech Extraction ──────────────────────────────────────────────────────────
 
 const TECH_PATTERNS: Array<{ pattern: RegExp; name: string }> = [
   { pattern: /\bjavascript\b/i, name: "JavaScript" },
@@ -434,7 +419,6 @@ export function extractTechFromJDText(jdText: string, existingTechStack: string[
     }
   }
 
-  // Parentheses extraction
   const parenPattern = /(AWS|GCP|Azure)\s*\(([^)]+)\)/gi;
   let match;
   parenPattern.lastIndex = 0;
@@ -455,8 +439,6 @@ export function extractTechFromJDText(jdText: string, existingTechStack: string[
 
   return dedupeArray(found);
 }
-
-// ─── Prompt ───────────────────────────────────────────────────────────────────
 
 let cachedPrompt: string | null = null;
 let cachedPromptDate: string | null = null;
@@ -502,8 +484,6 @@ Return JSON with these fields:
   cachedPromptDate = todayStr;
   return prompt;
 }
-
-// ─── Exchange Rates ────────────────────────────────────────────────────────────
 
 let exchangeRateCache: { rates: Record<string, number>; timestamp: number } | null = null;
 
@@ -637,8 +617,6 @@ function convertToINRYearly(
   if (min != null && max != null && max < min) [min, max] = [max, min];
   return { min, max };
 }
-
-// ─── ParseResult & Normalization ──────────────────────────────────────────────
 
 export interface ParseResult {
   title: string;
@@ -787,8 +765,6 @@ async function normalizeParseResult(
   };
 }
 
-// ─── OpenAI Client ─────────────────────────────────────────────────────────────
-
 async function callOpenAI(
   content: string,
   jdWasTruncated: boolean,
@@ -848,8 +824,6 @@ async function callOpenAI(
   }
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
 export async function parseJobDescription(
   jdText: string,
   apiKey?: string | null
@@ -866,7 +840,6 @@ export async function parseJobDescription(
 
   const parsed = await retryWithBackoff(() => callOpenAI(content, jdWasTruncated, apiKey));
 
-  // Validate required fields
   if (typeof parsed.title !== "string") parsed.title = "";
   if (typeof parsed.company !== "string") parsed.company = "";
   if (typeof parsed.location !== "string") parsed.location = "";

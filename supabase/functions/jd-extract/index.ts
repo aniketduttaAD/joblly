@@ -34,7 +34,6 @@ function extractJDInfo(text: string) {
     .map((l) => l.trim())
     .filter(Boolean);
 
-  // Extract role title
   let roleTitle = "";
   const titlePatterns = [
     /(?:position|role|title|job title)[:\s]+(.+)/i,
@@ -49,7 +48,6 @@ function extractJDInfo(text: string) {
   }
   if (!roleTitle && lines.length > 0) roleTitle = lines[0];
 
-  // Extract skills
   const requiredSkills: string[] = [];
   const preferredSkills: string[] = [];
   let inSkillsSection = false;
@@ -94,7 +92,6 @@ function extractJDInfo(text: string) {
     }
   }
 
-  // Extract responsibilities
   const responsibilities: string[] = [];
   let inResponsibilitiesSection = false;
 
@@ -122,7 +119,6 @@ function extractJDInfo(text: string) {
     }
   }
 
-  // Extract company
   let company: string | undefined;
   const companyPatterns = [
     /(?:at|company|organization)[:\s]+(.+)/i,

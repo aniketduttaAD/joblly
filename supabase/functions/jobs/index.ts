@@ -18,7 +18,6 @@ Deno.serve(async (req: Request) => {
   const identity = await getUserFromRequest(req);
   if (!identity) return errorResponse("Unauthorized", 401);
 
-  // GET /jobs — list paginated
   if (req.method === "GET") {
     const url = new URL(req.url);
     const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10));
@@ -33,7 +32,6 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  // POST /jobs — create
   if (req.method === "POST") {
     let body: Record<string, unknown>;
     try {

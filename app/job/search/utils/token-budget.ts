@@ -1,7 +1,3 @@
-/**
- * Token budgeting and rate limiting utilities
- */
-
 interface TokenUsage {
   tokens: number;
   timestamp: number;
@@ -27,23 +23,16 @@ class TokenBudgetManager {
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
-  /**
-   * Record token usage
-   */
   recordUsage(tokens: number): void {
     this.usageHistory.push({
       tokens,
       timestamp: Date.now(),
     });
 
-    // Clean up old entries (older than 24 hours)
     const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
     this.usageHistory = this.usageHistory.filter((entry) => entry.timestamp > oneDayAgo);
   }
 
-  /**
-   * Check if token usage is within limits
-   */
   checkLimits(tokensToUse: number): { allowed: boolean; reason?: string } {
     const now = Date.now();
     const oneMinuteAgo = now - 60 * 1000;
@@ -82,16 +71,10 @@ class TokenBudgetManager {
     return { allowed: true };
   }
 
-  /**
-   * Estimate token count for text (rough approximation: 1 token ≈ 4 characters)
-   */
   estimateTokens(text: string): number {
     return Math.ceil(text.length / 4);
   }
 
-  /**
-   * Get current usage statistics
-   */
   getUsageStats(): {
     lastMinute: number;
     lastHour: number;
@@ -115,22 +98,17 @@ class TokenBudgetManager {
     };
   }
 
-  /**
-   * Get current configured hard limits.
-   */
   getLimits(): RateLimitConfig {
     return { ...this.config };
   }
 }
 
-// Singleton instance
 let tokenBudgetManager: TokenBudgetManager | null = null;
 
 export function getTokenBudgetManager(): TokenBudgetManager {
   if (!tokenBudgetManager) {
     const config: Partial<RateLimitConfig> = {};
 
-    // Load from environment variables if available
     if (process.env.MAX_TOKENS_PER_MINUTE) {
       config.maxTokensPerMinute = parseInt(process.env.MAX_TOKENS_PER_MINUTE, 10);
     }

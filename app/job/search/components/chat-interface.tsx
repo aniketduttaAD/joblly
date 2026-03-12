@@ -60,13 +60,11 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
   }, [currentChat?.resumeId, resumes, loadResumes]);
 
   useEffect(() => {
-    // Auto-scroll to bottom when new messages arrive or streaming content updates
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
   }, [currentChat?.messages, streamingContent]);
 
-  // Also scroll when streaming starts
   useEffect(() => {
     if (isStreaming && messagesEndRef.current) {
       const timer = setTimeout(() => {
@@ -87,17 +85,13 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
 
     await addMessage(currentChat.id, userMessage);
 
-    // Clear inputs
     setUserInput("");
     setExtraInstructions("");
 
-    // Start streaming response
     setIsStreaming(true);
     setStreamingContent("");
 
     try {
-      // Fetch resume and JD data from local database
-      // Use resume from chat's resumeId (stored when chat was created)
       const chatResume = resumes.find((r) => r.id === currentChat.resumeId);
       const jdData = jd;
 
@@ -107,7 +101,6 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
         return;
       }
 
-      // Get API key from localStorage
       const { getApiKey } = await import("@/app/job/search/utils/api-key");
       const apiKey = getApiKey();
 
@@ -119,7 +112,6 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
         return;
       }
 
-      // RAG: Generate query embedding and retrieve relevant sections
       let retrievedResumeSections: string[] = [];
       let retrievedJDSections: string[] = [];
 
@@ -127,23 +119,18 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
         const { generateQueryEmbedding, searchEmbeddings } =
           await import("@/app/job/search/utils/embeddings");
 
-        // Generate embedding for the question
         const queryEmbedding = await generateQueryEmbedding(userInput);
 
-        // Retrieve relevant resume sections (top 5)
         const resumeEmbeddings = await searchEmbeddings(queryEmbedding, chatResume.id, "resume", 5);
         retrievedResumeSections = resumeEmbeddings.map((e) => e.text);
 
-        // Retrieve relevant JD sections (top 5)
         const jdEmbeddings = await searchEmbeddings(queryEmbedding, jdData.id, "jd", 5);
         retrievedJDSections = jdEmbeddings.map((e) => e.text);
       } catch (ragError) {
-        // Fallback: if RAG fails, use full content
-        retrievedResumeSections = []; // Empty means use full resume
-        retrievedJDSections = []; // Empty means use full JD
+        retrievedResumeSections = [];
+        retrievedJDSections = [];
       }
 
-      // Call backend API for streaming response
       const response = await fetch(sfn("chat"), {
         method: "POST",
         headers: {
@@ -158,14 +145,13 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
           chatHistory: currentChat.messages.slice(-10).map((msg) => ({
             role: msg.role,
             content: msg.content,
-          })), // Last 10 messages for RAG-like context (Q&A pairs)
+          })),
           retrievedResumeSections:
             retrievedResumeSections.length > 0 ? retrievedResumeSections : undefined,
           retrievedJDSections: retrievedJDSections.length > 0 ? retrievedJDSections : undefined,
         }),
       });
 
-      // Check for API errors before streaming
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         const errorMessage =
@@ -198,23 +184,18 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
                 fullContent += parsed.content;
                 setStreamingContent(fullContent);
               }
-            } catch {
-              // Skip invalid JSON
-            }
+            } catch {}
           }
         }
       }
 
-      // Save complete message only if we have content
       if (fullContent.trim()) {
         const assistantMessage: Omit<Message, "id" | "timestamp"> = {
           role: "assistant",
           content: fullContent,
         };
-        // Save to IndexedDB - this persists the message
         await addMessage(currentChat.id, assistantMessage);
       } else {
-        // If no content received, show error message
         await addMessage(currentChat.id, {
           role: "assistant",
           content: "Sorry, I didn't receive a response. Please try again.",
@@ -227,7 +208,6 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
       });
     } finally {
       setIsStreaming(false);
-      // Don't clear streamingContent immediately - let it fade out naturally
       setTimeout(() => setStreamingContent(""), 100);
     }
   };
@@ -258,7 +238,6 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
         return;
       }
 
-      // Get API key from localStorage
       const { getApiKey } = await import("@/app/job/search/utils/api-key");
       const apiKey = getApiKey();
 
@@ -282,7 +261,6 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
         }),
       });
 
-      // Check for API errors before streaming
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         const errorMessage =
@@ -316,9 +294,7 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
                 fullContent += parsed.content;
                 setStreamingContent(fullContent);
               }
-            } catch {
-              // Skip invalid JSON
-            }
+            } catch {}
           }
         }
       }
@@ -385,7 +361,6 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
 
     setAddToTrackerLoading(true);
     try {
-      // Optional duplicate check via tracker API
       try {
         const resExisting = await appFetch(sfn("jobs"));
         const dataExisting = await resExisting.json().catch(() => ({}));
@@ -409,9 +384,7 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
             return;
           }
         }
-      } catch {
-        // If duplicate check fails, proceed without blocking
-      }
+      } catch {}
 
       const body = {
         title: roleTitle,

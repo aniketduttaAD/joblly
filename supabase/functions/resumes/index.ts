@@ -4,7 +4,7 @@ import { getUserFromRequest, createAdminClient } from "../_shared/auth.ts";
 import { listResumes, createResume } from "../_shared/db.ts";
 import type { ParsedResume } from "../_shared/types.ts";
 
-const PDF_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
+const PDF_SIZE_LIMIT = 5 * 1024 * 1024;
 const MAX_TEXT_LENGTH = 65_000;
 
 Deno.serve(async (req: Request) => {
@@ -14,7 +14,6 @@ Deno.serve(async (req: Request) => {
   const identity = await getUserFromRequest(req);
   if (!identity) return errorResponse("Unauthorized", 401);
 
-  // GET — list resumes
   if (req.method === "GET") {
     try {
       const resumes = await listResumes(identity.userId);
@@ -25,7 +24,6 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  // POST — upload new resume
   if (req.method === "POST") {
     let formData: FormData;
     try {
@@ -52,7 +50,6 @@ Deno.serve(async (req: Request) => {
     let content = contentStr;
     let parsedContent: ParsedResume;
 
-    // Parse PDF if content not provided
     if (!content) {
       try {
         const { default: pdfParse } = await import("npm:pdf-parse");
@@ -86,7 +83,6 @@ Deno.serve(async (req: Request) => {
 
     const id = crypto.randomUUID();
 
-    // Upload PDF to Supabase Storage
     try {
       const supabase = createAdminClient();
       const arrayBuffer = await file.arrayBuffer();
@@ -112,7 +108,6 @@ Deno.serve(async (req: Request) => {
       );
       return jsonResponse(resume, 201);
     } catch (err) {
-      // Cleanup storage on DB failure
       const supabase = createAdminClient();
       await supabase.storage
         .from("resumes")

@@ -1,5 +1,4 @@
 /**
- * Enhanced resume parsing with better NLP extraction
  */
 
 export interface ParsedSection {
@@ -33,16 +32,12 @@ export interface ParsedSection {
   rawText: string;
 }
 
-/**
- * Enhanced parsing with better pattern recognition
- */
 export function parseResumeTextEnhanced(text: string): ParsedSection {
   const lines = text
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
 
-  // Extract skills with better pattern matching
   const skills: string[] = [];
   let inSkillsSection = false;
   let skillsEnded = false;
@@ -51,8 +46,6 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
     const line = lines[i];
     const lowerLine = line.toLowerCase();
 
-    // Detect skills section start - must be a section header, not a job title
-    // Check for exact matches or "Technical Skills" pattern
     const isSkillsHeader =
       lowerLine === "technical skills" ||
       lowerLine === "skills" ||
@@ -62,9 +55,7 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
       continue;
     }
 
-    // Detect skills section end - check for major section headers (but not if it's part of a skill category)
     if (inSkillsSection) {
-      // Only end if it's a standalone section header, not if it contains a colon (which would be a skill category)
       const isMajorSection = lowerLine.match(
         /^(work experience|experience|employment|work history|education|projects|certifications|professional summary|summary)$/
       );
@@ -75,14 +66,10 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
       }
     }
 
-    // Extract skills from current line
     if (inSkillsSection && line.length > 0) {
-      // Handle categorized skills like "Languages:JavaScript, TypeScript, Java"
-      // or "Frontend & Mobile:React, Next.js, React Native"
       if (line.includes(":")) {
         const parts = line.split(":");
         if (parts.length >= 2) {
-          // Extract skills after the colon
           const skillList = parts
             .slice(1)
             .join(":")
@@ -92,7 +79,6 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
           skills.push(...skillList);
         }
       } else {
-        // Handle comma-separated, bullet points, or other formats
         const skillList = line
           .split(/[,•\-\n|;]/)
           .map((s) => s.trim())
@@ -107,7 +93,6 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
     }
   }
 
-  // Extract experience with better pattern recognition
   const experience: ParsedSection["experience"] = [];
   const experienceKeywords = [
     "work experience",
@@ -120,13 +105,12 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
 
   let inExperienceSection = false;
   let currentExp: Partial<ParsedSection["experience"][0]> | null = null;
-  let lastSavedExpKey: string | null = null; // Track last saved entry to avoid duplicates
+  let lastSavedExpKey: string | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lowerLine = line.toLowerCase();
 
-    // Detect experience section
     if (
       experienceKeywords.some((keyword) => lowerLine.includes(keyword)) &&
       lowerLine.length < 30
@@ -136,27 +120,18 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
     }
 
     if (inExperienceSection) {
-      // Detect date pattern (e.g., "Jun 2025 – Sep 2025" or "Jan 2024 – Jun 2025")
-      // Must be a standalone date line, not part of a longer description
       const datePattern = /^(\w+\s+\d{4}|\d{4})\s*[-–—]\s*(\w+\s+\d{4}|\d{4}|present|current)$/i;
       const dateMatch = line.match(datePattern);
 
-      // Detect role • company pattern (e.g., "Full Stack Developer • Heal Easy")
-      // Must be a short line (likely a title), not a long description
       const roleCompanyPattern = /^([^•]{2,50})\s*•\s*(.{2,50})$/;
       const roleCompanyMatch = line.length < 80 && line.match(roleCompanyPattern);
 
-      // Detect role at company pattern (must be short, not a description)
-      // Exclude date patterns (they're dates, not role/company)
       const isDatePatternForAt =
         /^(\w+\s+\d{4}|\d{4})\s+at\s+(\w+\s+\d{4}|\d{4}|present|current)$/i.test(line);
       const roleAtCompanyPattern = /^(.{2,50}?)\s+at\s+(.{2,50})$/i;
       const roleAtCompanyMatch =
         line.length < 80 && !isDatePatternForAt && line.match(roleAtCompanyPattern);
 
-      // Detect role - company pattern (must be short, not a description with dashes)
-      // Exclude lines that start with action verbs (they're descriptions)
-      // Exclude date patterns (they're dates, not role/company)
       const actionVerbs =
         /^(rebuilt|developed|created|implemented|designed|migrated|integrated|built)/i;
       const isDatePattern =
@@ -168,12 +143,9 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
         !isDatePattern &&
         line.match(roleDashCompanyPattern);
 
-      // Check if this is a new experience entry
-      // A date alone is NOT a new entry - it should update the current entry
       const isNewEntry = roleCompanyMatch || roleAtCompanyMatch || roleDashCompanyMatch;
 
       if (isNewEntry) {
-        // Save previous experience if exists
         if (currentExp && (currentExp.role || currentExp.company)) {
           const expKey = `${currentExp.role}|||${currentExp.company}`;
           if (expKey !== lastSavedExpKey) {
@@ -189,9 +161,7 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
           }
         }
 
-        // Start new experience
         if (roleCompanyMatch) {
-          // Format: "Role • Company"
           currentExp = {
             role: roleCompanyMatch[1].trim(),
             company: roleCompanyMatch[2].trim(),
@@ -201,7 +171,6 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
             achievements: [],
           };
         } else if (roleAtCompanyMatch) {
-          // Format: "Role at Company"
           currentExp = {
             role: roleAtCompanyMatch[1].trim(),
             company: roleAtCompanyMatch[2].trim(),
@@ -211,7 +180,6 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
             achievements: [],
           };
         } else if (roleDashCompanyMatch) {
-          // Format: "Role - Company"
           currentExp = {
             role: roleDashCompanyMatch[1].trim(),
             company: roleDashCompanyMatch[2].trim(),
@@ -222,9 +190,7 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
           };
         }
       } else if (currentExp) {
-        // Check if this is a date line for existing experience (dates come after role/company)
         if (dateMatch) {
-          // Only update dates if they're not already set, or if current dates are empty
           if (!currentExp.startDate || currentExp.startDate === "") {
             currentExp.startDate = dateMatch[1]?.trim() || "";
             const endDateValue = dateMatch[2];
@@ -236,7 +202,6 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
                 : undefined;
           }
         } else if (line.length > 10 && !dateMatch) {
-          // Add to description or achievements (but not if it's a date line)
           if (line.startsWith("•") || line.startsWith("-") || line.startsWith("*")) {
             if (!currentExp.achievements) currentExp.achievements = [];
             currentExp.achievements.push(line.replace(/^[•\-\*]\s*/, ""));
@@ -246,7 +211,6 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
         }
       }
 
-      // End experience section - check for major section headers
       const isMajorSection = lowerLine.match(/^(education|projects|certifications|key projects)$/);
       if (isMajorSection && lowerLine.length < 30) {
         if (currentExp && (currentExp.role || currentExp.company)) {
@@ -263,13 +227,12 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
             lastSavedExpKey = expKey;
           }
         }
-        currentExp = null; // Clear currentExp to prevent saving again
+        currentExp = null;
         break;
       }
     }
   }
 
-  // Save last experience if exists (only if not already saved)
   if (currentExp && (currentExp.role || currentExp.company)) {
     const expKey = `${currentExp.role}|||${currentExp.company}`;
     if (expKey !== lastSavedExpKey) {
@@ -284,7 +247,6 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
     }
   }
 
-  // Extract projects
   const projects: ParsedSection["projects"] = [];
   const projectKeywords = ["key projects", "projects", "project", "portfolio", "side projects"];
 
@@ -295,7 +257,6 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
     const line = lines[i];
     const lowerLine = line.toLowerCase();
 
-    // Only start projects section if it's a clear section header
     if (
       projectKeywords.some((keyword) => lowerLine === keyword || lowerLine === `key ${keyword}`) &&
       lowerLine.length < 30
@@ -304,7 +265,6 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
       continue;
     }
 
-    // End projects section when we hit education
     if (inProjectsSection && (lowerLine === "education" || lowerLine.startsWith("education"))) {
       if (currentProject && currentProject.name) {
         projects.push({
@@ -318,13 +278,10 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
     }
 
     if (inProjectsSection) {
-      // Project names: must be capitalized, not too long, and not contain degree keywords
       const isDegree = /(bachelor|master|phd|doctorate|associate|diploma|certificate)/i.test(line);
       const isDateOnly =
         /^(\w+\s+\d{4}|\d{4})\s*[-–—]\s*(\w+\s+\d{4}|\d{4}|present|current)$/i.test(line);
 
-      // Project name pattern: capitalized, reasonable length, not a degree, not just a date
-      // Must not be a duplicate of current project name
       if (
         line.length > 5 &&
         line.length < 80 &&
@@ -346,7 +303,6 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
         }
         currentProject = { name: line, description: "" };
       } else if (currentProject && line.length > 10) {
-        // Check for date pattern for duration
         const dateMatch = line.match(
           /^(\w+\s+\d{4}|\d{4})\s*[-–—]\s*(\w+\s+\d{4}|\d{4}|present|current)$/i
         );
@@ -367,7 +323,6 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
   }
 
   if (currentProject && currentProject.name) {
-    // Check if this project is already in the list (avoid duplicates)
     const isDuplicate = projects.some((p) => p.name === currentProject.name);
     if (!isDuplicate) {
       projects.push({
@@ -379,7 +334,6 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
     }
   }
 
-  // Extract education
   const education: ParsedSection["education"] = [];
   const educationKeywords = ["education", "academic", "qualifications"];
 
@@ -395,7 +349,6 @@ export function parseResumeTextEnhanced(text: string): ParsedSection {
     }
 
     if (inEducationSection) {
-      // Education entries usually have degree, institution, and optionally date
       const degreePattern = /(bachelor|master|phd|doctorate|associate|diploma|certificate)/i;
       const institutionPattern = /(university|college|institute|school)/i;
 

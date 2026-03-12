@@ -2,7 +2,6 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleCors, errorResponse } from "../_shared/cors.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
-// Token budget: max 200k tokens per day per IP (approximate)
 const MAX_TOKENS_PER_REQUEST = 15_000;
 
 function estimateTokens(text: string): number {
@@ -137,7 +136,6 @@ Deno.serve(async (req: Request) => {
     return errorResponse("Question is required", 400);
   }
 
-  // Format resume content
   const resumeContent = formatResumeContent(
     resumeData as ResumeData,
     retrievedResumeSections as string[]
@@ -164,7 +162,6 @@ Deno.serve(async (req: Request) => {
 
   baseMessages.push({ role: "user", content: userPrompt });
 
-  // Token estimate
   const allText = buildPhase1Prompt() + baseMessages.map((m) => m.content).join("\n");
   if (estimateTokens(allText) > MAX_TOKENS_PER_REQUEST) {
     return errorResponse("Request too large. Please shorten the resume or job description.", 429);
@@ -174,7 +171,6 @@ Deno.serve(async (req: Request) => {
     async start(controller) {
       const encode = (s: string) => new TextEncoder().encode(s);
       try {
-        // Phase 1
         const p1Res = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
@@ -192,7 +188,6 @@ Deno.serve(async (req: Request) => {
         const phase1Content = p1Data.choices?.[0]?.message?.content ?? "";
         if (!phase1Content.trim()) throw new Error("Failed to generate phase 1 response");
 
-        // Phase 2
         const p2Res = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
@@ -210,7 +205,6 @@ Deno.serve(async (req: Request) => {
         const phase2Content = p2Data.choices?.[0]?.message?.content ?? "";
         if (!phase2Content.trim()) throw new Error("Failed to generate phase 2 response");
 
-        // Phase 3 (streaming)
         const p3Res = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
@@ -252,9 +246,7 @@ Deno.serve(async (req: Request) => {
               if (content) {
                 controller.enqueue(encode(`data: ${JSON.stringify({ content })}\n\n`));
               }
-            } catch {
-              /* skip bad chunks */
-            }
+            } catch {}
           }
         }
 

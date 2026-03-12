@@ -1,4 +1,3 @@
-// API Key management utilities
 const API_KEY_STORAGE_KEY = "openai_api_key";
 
 export function getApiKey(): string | null {

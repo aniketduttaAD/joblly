@@ -72,7 +72,7 @@ export interface Chat {
 
 export interface Message {
   id: string;
-  chatId?: string; // Optional for type compatibility, but stored in DB
+  chatId?: string;
   role: "user" | "assistant";
   content: string;
   extraInstructions?: string;
@@ -87,7 +87,7 @@ export interface ContextSummary {
 
 export interface Embedding {
   id: string;
-  entityId: string; // resumeId or jdId
+  entityId: string;
   entityType: "resume" | "jd";
   section: string;
   text: string;

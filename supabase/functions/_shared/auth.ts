@@ -18,14 +18,12 @@ function getAnonKey(): string {
   return Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 }
 
-/** Creates an admin client (service role — bypasses RLS). */
 export function createAdminClient() {
   return createClient(getSupabaseUrl(), getServiceRoleKey(), {
     auth: { persistSession: false },
   });
 }
 
-/** Creates a user-scoped client using the JWT from the request. */
 export function createUserClient(jwt: string) {
   return createClient(getSupabaseUrl(), getAnonKey(), {
     global: { headers: { Authorization: `Bearer ${jwt}` } },
@@ -33,15 +31,7 @@ export function createUserClient(jwt: string) {
   });
 }
 
-/**
- * Validates the request and returns the authenticated user identity.
- * Checks:
- *   1. Authorization: Bearer <token>
- *   2. jobtracker_session / sb-access-token cookie
- * Returns null if not authenticated.
- */
 export async function getUserFromRequest(req: Request): Promise<AuthenticatedUserIdentity | null> {
-  // Try Authorization Bearer header
   const authHeader = req.headers.get("authorization");
   let token: string | null = null;
 
@@ -49,7 +39,6 @@ export async function getUserFromRequest(req: Request): Promise<AuthenticatedUse
     token = authHeader.slice(7).trim();
   }
 
-  // Try cookie fallback
   if (!token) {
     const cookieHeader = req.headers.get("cookie") ?? "";
     const cookies = Object.fromEntries(
@@ -81,11 +70,6 @@ export async function getUserFromRequest(req: Request): Promise<AuthenticatedUse
   }
 }
 
-/**
- * Same-origin / API key check for internal routes.
- * Passes if request has correct X-API-Key header or
- * the origin matches SITE_URL env var.
- */
 export function isApiAuthorized(req: Request): boolean {
   const apiKey = Deno.env.get("API_KEY");
   if (apiKey) {

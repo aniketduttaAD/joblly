@@ -7,7 +7,6 @@ interface JDStore {
   isLoading: boolean;
   error: string | null;
 
-  // Actions
   loadJDs: () => Promise<void>;
   addJD: (jd: Omit<JobDescription, "id" | "createdAt">) => Promise<string>;
   getJD: (id: string) => Promise<JobDescription | undefined>;
