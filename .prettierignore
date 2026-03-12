@@ -1,0 +1,7 @@
+.next
+out
+node_modules
+.pnpm-store
+*.lock
+package-lock.json
+.next-env.d.ts

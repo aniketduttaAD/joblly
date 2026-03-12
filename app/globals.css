@@ -1,0 +1,75 @@
+@import "tailwindcss";
+
+@theme {
+  --color-beige-50: #fdfcf9;
+  --color-beige-100: #f9f6f0;
+  --color-beige-200: #f2ebe0;
+  --color-beige-300: #e8dcc8;
+  --color-beige-400: #d4c4a8;
+  --color-orange-brand: #e07c3c;
+  --color-orange-light: #f0a066;
+  --color-orange-dark: #c45d24;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+:root {
+  --beige-50: #fdfcf9;
+  --beige-100: #f9f6f0;
+  --beige-200: #f2ebe0;
+  --beige-300: #e8dcc8;
+  --beige-400: #d4c4a8;
+  --orange-brand: #e07c3c;
+  --orange-light: #f0a066;
+  --orange-dark: #c45d24;
+  --background: #fdfcf9;
+  --foreground: #292524;
+  --card: #fffdf9;
+  --card-foreground: #292524;
+  --popover: #fffdf9;
+  --popover-foreground: #292524;
+  --primary: #e07c3c;
+  --primary-foreground: #fff7ed;
+  --secondary: #f2ebe0;
+  --secondary-foreground: #44403c;
+  --muted: #f9f6f0;
+  --muted-foreground: #78716c;
+  --accent: #f2ebe0;
+  --accent-foreground: #44403c;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #e8dcc8;
+  --input: #e8dcc8;
+  --ring: #e07c3c;
+}
+
+body {
+  background-color: var(--color-beige-50);
+  color: var(--color-stone-800);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--beige-400) transparent;
+  }
+}

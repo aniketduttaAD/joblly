@@ -1,0 +1,148 @@
+"use client";
+
+import { sfn } from "@/lib/supabase-api";
+import { supabaseBrowserClient } from "@/lib/supabase-browser";
+
+const SB_ACCESS_TOKEN_KEY = "sb_access_token";
+
+function getStoredToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(SB_ACCESS_TOKEN_KEY);
+}
+
+function storeToken(token: string): void {
+  if (typeof window !== "undefined") localStorage.setItem(SB_ACCESS_TOKEN_KEY, token);
+}
+
+function clearToken(): void {
+  if (typeof window !== "undefined") localStorage.removeItem(SB_ACCESS_TOKEN_KEY);
+}
+
+export type AuthUser = {
+  id: string;
+  email?: string;
+  name?: string;
+};
+
+export async function getCurrentUser(): Promise<AuthUser | null> {
+  try {
+    const token = getStoredToken();
+    if (!token) return null;
+
+    const response = await fetch(sfn("auth-me"), {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return null;
+
+    const data = (await response.json()) as { id?: string; email?: string; name?: string };
+    if (!data.id) return null;
+    return { id: data.id, email: data.email, name: data.name };
+  } catch {
+    return null;
+  }
+}
+
+export async function sendEmailOtp(email: string): Promise<{ userId: string }> {
+  const trimmedEmail = email.trim().toLowerCase();
+  if (!trimmedEmail) {
+    throw new Error("Email is required.");
+  }
+
+  const { error } = await supabaseBrowserClient.auth.signInWithOtp({
+    email: trimmedEmail,
+    options: {
+      shouldCreateUser: true,
+    },
+  });
+
+  if (error) {
+    throw new Error(error.message || "Failed to send email code.");
+  }
+
+  return { userId: trimmedEmail };
+}
+
+/**
+ * Verifies the 6-digit OTP. On success, stores the Supabase access token
+ * in localStorage for use in subsequent authenticated requests.
+ */
+export async function verifyEmailOtp(userId: string, secret: string): Promise<AuthUser> {
+  const email = userId.trim().toLowerCase();
+  const token = secret.trim();
+
+  if (!email || !token) {
+    throw new Error("Invalid or expired code.");
+  }
+
+  const { data, error } = await supabaseBrowserClient.auth.verifyOtp({
+    email,
+    token,
+    type: "email",
+  });
+
+  if (error || !data.session || !data.session.user) {
+    throw new Error(error?.message || "Invalid or expired code.");
+  }
+
+  const session = data.session;
+  const user = session.user;
+
+  if (session.access_token) {
+    storeToken(session.access_token);
+  }
+
+  return {
+    id: user.id,
+    email: user.email ?? undefined,
+    name:
+      (user.user_metadata?.full_name as string | undefined) ??
+      (user.user_metadata?.name as string | undefined),
+  };
+}
+
+/**
+ * Signs the user out and clears the stored access token.
+ */
+export async function signOut(): Promise<void> {
+  try {
+    const token = getStoredToken();
+    if (token) {
+      await fetch(sfn("auth-signout"), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
+  } catch {
+    // Best-effort; token cleared regardless.
+  } finally {
+    clearToken();
+  }
+}
+
+/**
+ * Authenticated fetch wrapper. Automatically injects `Authorization: Bearer`
+ * from the stored Supabase access token. Also sets Content-Type: application/json
+ * for non-multipart/blob bodies — preserving the original behaviour.
+ */
+export async function fetchWithAuth(
+  input: RequestInfo | URL,
+  init: RequestInit = {}
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const body = init.body;
+  const isMultipart = typeof FormData !== "undefined" && body instanceof FormData;
+  const isBinary = typeof Blob !== "undefined" && body instanceof Blob;
+  const isSearchParams = typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams;
+
+  if (body && !headers.has("Content-Type") && !isMultipart && !isBinary && !isSearchParams) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const token = getStoredToken();
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  return fetch(input, { ...init, headers });
+}

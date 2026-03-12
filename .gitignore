@@ -1,0 +1,108 @@
+# Node / Next.js
+node_modules/
+.pnp/
+.pnp.js
+.pnp.cjs
+
+# Output / build
+.next/
+out/
+dist/
+.turbo/
+.cache/
+coverage/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.iml
+
+# Env & secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Supabase
+supabase/.branches/
+supabase/.temp/
+supabase/.cache/
+
+# Test / debug artifacts
+*.tsbuildinfo
+*.log.*
+
+# Generated assets
+canvas/
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# testing
+/coverage
+*.lcov
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+/dist
+
+# misc
+.DS_Store
+*.pem
+*.log
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# local env files — never commit (contain real secrets)
+.env
+.env*.local
+.env.development.local
+.env.test.local
+.env.production.local
+# .env.example is intentionally NOT ignored (safe placeholders only)
+
+# app data — user content, do not commit
+/data
+
+# Turbo
+.turbo
+
+# PWA files
+/public/sw.js
+/public/workbox-*.js
+/public/worker-*.js
+/public/sw.js.map
+/public/workbox-*.js.map
+/public/worker-*.js.map
+/public/fallback-*.js
+/.pnpm-store
+.DS_Store
