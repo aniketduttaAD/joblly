@@ -131,5 +131,10 @@ export async function fetchWithAuth(
     headers.set("Authorization", `Bearer ${token}`);
   }
 
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (anonKey && !headers.has("apikey")) {
+    headers.set("apikey", anonKey);
+  }
+
   return fetch(input, { ...init, headers });
 }
