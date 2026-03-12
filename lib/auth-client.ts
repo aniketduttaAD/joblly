@@ -3,30 +3,21 @@
 import { sfn } from "@/lib/supabase-api";
 import { supabaseBrowserClient } from "@/lib/supabase-browser";
 
-const SB_ACCESS_TOKEN_KEY = "sb_access_token";
-
-function getStoredToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(SB_ACCESS_TOKEN_KEY);
-}
-
-function storeToken(token: string): void {
-  if (typeof window !== "undefined") localStorage.setItem(SB_ACCESS_TOKEN_KEY, token);
-}
-
-function clearToken(): void {
-  if (typeof window !== "undefined") localStorage.removeItem(SB_ACCESS_TOKEN_KEY);
-}
-
 export type AuthUser = {
   id: string;
   email?: string;
   name?: string;
 };
 
+async function getCurrentAccessToken(): Promise<string | null> {
+  const { data, error } = await supabaseBrowserClient.auth.getSession();
+  if (error) return null;
+  return data.session?.access_token ?? null;
+}
+
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
-    const token = getStoredToken();
+    const token = await getCurrentAccessToken();
     if (!token) return null;
 
     const response = await fetch(sfn("auth-me"), {
@@ -84,10 +75,6 @@ export async function verifyEmailOtp(userId: string, secret: string): Promise<Au
   const session = data.session;
   const user = session.user;
 
-  if (session.access_token) {
-    storeToken(session.access_token);
-  }
-
   return {
     id: user.id,
     email: user.email ?? undefined,
@@ -99,16 +86,16 @@ export async function verifyEmailOtp(userId: string, secret: string): Promise<Au
 
 export async function signOut(): Promise<void> {
   try {
-    const token = getStoredToken();
+    const token = await getCurrentAccessToken();
     if (token) {
       await fetch(sfn("auth-signout"), {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
     }
+    await supabaseBrowserClient.auth.signOut();
   } catch {
   } finally {
-    clearToken();
   }
 }
 
@@ -126,7 +113,7 @@ export async function fetchWithAuth(
     headers.set("Content-Type", "application/json");
   }
 
-  const token = getStoredToken();
+  const token = await getCurrentAccessToken();
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
   }
