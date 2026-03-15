@@ -828,8 +828,8 @@ export async function parseJobDescription(
   jdText: string,
   apiKey?: string | null
 ): Promise<ParseResult> {
-  const key = apiKey?.trim();
-  if (!key) throw new ParseError("Set your OpenAI API key to use Parse with AI.");
+  const key = (apiKey?.trim() || Deno.env.get("OPENAI_API_KEY") || "").trim();
+  if (!key) throw new ParseError("OpenAI API key is not configured on the server.");
   if (typeof jdText !== "string") throw new ParseError("Job description must be a string");
 
   const text = jdText.trim();

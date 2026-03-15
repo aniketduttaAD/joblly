@@ -16,11 +16,9 @@ export async function parseJobDescription(
 ): Promise<ParseResult> {
   const startTime = Date.now();
 
-  const key = apiKey?.trim();
+  const key = (apiKey?.trim() || process.env.OPENAI_API_KEY || "").trim();
   if (!key) {
-    throw new ParseError(
-      "Set your OpenAI API key in the bar at the top of the app to use Parse with AI."
-    );
+    throw new ParseError("OpenAI API key is not configured on the server.");
   }
 
   if (typeof jdText !== "string") {

@@ -104,9 +104,9 @@ Deno.serve(async (req: Request) => {
 
   if (req.method !== "POST") return errorResponse("Method not allowed", 405);
 
-  const apiKey = req.headers.get("x-openai-api-key");
+  const apiKey = (Deno.env.get("OPENAI_API_KEY") || "").trim();
   if (!apiKey) {
-    return errorResponse("OpenAI API key not provided. Please set your API key in settings.", 400);
+    return errorResponse("OpenAI API key is not configured on the server.", 500);
   }
 
   let body: Record<string, unknown>;
@@ -128,9 +128,6 @@ Deno.serve(async (req: Request) => {
 
   if (!resumeData || !jdData) {
     return errorResponse("Resume and JD data are required", 400);
-  }
-  if (!(resumeData as { isVerified?: boolean }).isVerified) {
-    return errorResponse("Resume must be verified before use", 400);
   }
   if (!question || typeof question !== "string") {
     return errorResponse("Question is required", 400);
@@ -270,7 +267,6 @@ Deno.serve(async (req: Request) => {
 
 interface ResumeData {
   name: string;
-  content: string;
   parsedContent: {
     skills?: string[];
     experience?: Array<{
@@ -312,6 +308,5 @@ function formatResumeContent(resume: ResumeData, retrievedSections?: string[]): 
       content += `- ${e.degree}${e.field ? ` in ${e.field}` : ""} from ${e.institution}\n`;
     content += "\n";
   }
-  content += `\nFULL TEXT:\n${resume.content}`;
   return content;
 }

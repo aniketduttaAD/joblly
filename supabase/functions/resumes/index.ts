@@ -96,7 +96,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "GET") {
     try {
       const resumes = await listResumes(identity.userId);
-      return jsonResponse(resumes);
+      return jsonResponse({ resumes });
     } catch (err) {
       console.error("GET /resumes error:", err);
       return errorResponse("Failed to list resumes", 500);
@@ -150,7 +150,6 @@ Deno.serve(async (req: Request) => {
     const id = crypto.randomUUID();
 
     try {
-
       const supabase = createAdminClient();
 
       const arrayBuffer = await file.arrayBuffer();
@@ -159,37 +158,33 @@ Deno.serve(async (req: Request) => {
         .from("resumes")
         .upload(`${identity.userId}/${id}`, arrayBuffer, {
           contentType: "application/pdf",
-          upsert: false
+          upsert: false,
         });
 
       if (storageError) throw storageError;
-
     } catch (err) {
       console.error("Storage upload error:", err);
       return errorResponse("Failed to upload file", 500);
     }
 
     try {
-
       const resume = await createResume(
         id,
         identity,
         {
           name: file.name,
           size: file.size,
-          type: file.type || "application/pdf"
+          type: file.type || "application/pdf",
         },
         name || file.name,
         {
           content,
-          parsedContent
+          parsedContent,
         }
       );
 
       return jsonResponse(resume, 201);
-
     } catch (err) {
-
       const supabase = createAdminClient();
 
       await supabase.storage

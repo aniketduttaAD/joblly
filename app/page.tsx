@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import {
   Search,
-  Filter,
   Plus,
   Trash2,
   Briefcase,
@@ -14,13 +13,13 @@ import {
   Check,
   Eye,
   Copy,
-  Pencil,
   Download,
   Upload,
+  MessageCircle,
 } from "lucide-react";
 import type { JobRecord, JobStatus } from "@/lib/types";
-import { getApiKey } from "@/app/job/search/utils/api-key";
 import { useAppAuth } from "@/app/components/app-auth-provider";
+import { ChatBottomSheet } from "@/app/components/chat-bottom-sheet";
 import { sfn } from "@/lib/supabase-api";
 
 const JOB_STATUS_OPTIONS: { value: JobStatus; label: string }[] = [
@@ -46,15 +45,6 @@ export default function HomePage() {
     appliedThisWeek: number;
     statusCounts: Record<JobStatus, number>;
   } | null>(null);
-  const [filterTitle, setFilterTitle] = useState("");
-  const [filterLocation, setFilterLocation] = useState("");
-  const [filterRole, setFilterRole] = useState("");
-  const [filterExperience, setFilterExperience] = useState("");
-  const [filterTech, setFilterTech] = useState("");
-  const [filterSalaryMin, setFilterSalaryMin] = useState("");
-  const [filterSalaryMax, setFilterSalaryMax] = useState("");
-  const [filterStatus, setFilterStatus] = useState<JobStatus | "">("");
-  const [showFilters, setShowFilters] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [parseModalOpen, setParseModalOpen] = useState(false);
   const [parsePaste, setParsePaste] = useState("");
@@ -68,13 +58,7 @@ export default function HomePage() {
   const [deleteLoading, setDeleteLoading] = useState<string | "bulk" | null>(null);
 
   const [detailJob, setDetailJob] = useState<JobRecord | null>(null);
-  const [detailStatusEdit, setDetailStatusEdit] = useState<{
-    status: JobStatus;
-    appliedAt: string;
-  } | null>(null);
   const [patchJobLoading, setPatchJobLoading] = useState(false);
-  const [detailEditForm, setDetailEditForm] = useState<Partial<JobRecord> | null>(null);
-  const [editJobLoading, setEditJobLoading] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [importLoading, setImportLoading] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
@@ -93,31 +77,25 @@ export default function HomePage() {
     error?: string;
   } | null>(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [chatSheetOpen, setChatSheetOpen] = useState(false);
+  const [chatSheetJdText, setChatSheetJdText] = useState<string | null>(null);
+  const [chatSheetJobMetadata, setChatSheetJobMetadata] = useState<{
+    title?: string;
+    company?: string;
+    location?: string;
+    companyPublisher?: string;
+  } | null>(null);
 
   const PAGE_SIZE = 20;
   const [currentPage, setCurrentPage] = useState(1);
-
-  const hasFilters =
-    !!filterTitle ||
-    !!filterLocation ||
-    !!filterRole ||
-    !!filterExperience ||
-    !!filterTech ||
-    filterSalaryMin !== "" ||
-    filterSalaryMax !== "" ||
-    !!filterStatus;
 
   const fetchJobs = useCallback(
     async (page: number = 1) => {
       setLoading(true);
       try {
         const params = new URLSearchParams();
-        if (hasFilters) {
-          params.set("all", "1");
-        } else {
-          params.set("page", String(page));
-          params.set("limit", String(PAGE_SIZE));
-        }
+        params.set("page", String(page));
+        params.set("limit", String(PAGE_SIZE));
         const res = await appFetch(`${sfn("jobs")}?${params.toString()}`);
         const data = await res.json().catch(() => ({}));
         if (res.status === 401) {
@@ -129,7 +107,7 @@ export default function HomePage() {
         setLoading(false);
       }
     },
-    [appFetch, hasFilters]
+    [appFetch]
   );
 
   const fetchStats = useCallback(async () => {
@@ -212,62 +190,20 @@ export default function HomePage() {
     };
   }, [appFetch, search]);
 
-  const useServerPagination = !search.trim() && !hasFilters;
+  const useServerPagination = !search.trim();
   const baseJobs = searchedJobs !== null ? searchedJobs : jobs;
-  const filteredJobs = baseJobs.filter((job) => {
-    if (filterTitle && !(job.title || "").toLowerCase().includes(filterTitle.toLowerCase()))
-      return false;
-    if (
-      filterLocation &&
-      !(job.location || "").toLowerCase().includes(filterLocation.toLowerCase())
-    )
-      return false;
-    if (filterRole && !(job.role || "").toLowerCase().includes(filterRole.toLowerCase()))
-      return false;
-    if (
-      filterExperience &&
-      !(job.experience || "").toLowerCase().includes(filterExperience.toLowerCase())
-    )
-      return false;
-    if (filterTech) {
-      const tech = filterTech.toLowerCase();
-      if (!job.techStack.some((t) => t.toLowerCase().includes(tech))) return false;
-    }
-    if (
-      filterSalaryMin !== "" &&
-      (job.salaryMin == null || job.salaryMin < Number(filterSalaryMin))
-    )
-      return false;
-    if (
-      filterSalaryMax !== "" &&
-      (job.salaryMax == null || job.salaryMax > Number(filterSalaryMax))
-    )
-      return false;
-    if (filterStatus && job.status !== filterStatus) return false;
-    return true;
-  });
 
   const totalPages = useServerPagination
     ? Math.max(1, Math.ceil(totalJobsCount / PAGE_SIZE))
-    : Math.max(1, Math.ceil(filteredJobs.length / PAGE_SIZE));
+    : Math.max(1, Math.ceil(baseJobs.length / PAGE_SIZE));
   const currentPageSafe = Math.min(currentPage, totalPages);
   const startIndex = (currentPageSafe - 1) * PAGE_SIZE;
   const endIndex = startIndex + PAGE_SIZE;
-  const paginatedJobs = useServerPagination ? jobs : filteredJobs.slice(startIndex, endIndex);
+  const paginatedJobs = useServerPagination ? jobs : baseJobs.slice(startIndex, endIndex);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [
-    search,
-    filterTitle,
-    filterLocation,
-    filterRole,
-    filterExperience,
-    filterTech,
-    filterSalaryMin,
-    filterSalaryMax,
-    filterStatus,
-  ]);
+  }, [search]);
 
   const totalJobs = stats?.total ?? totalJobsCount;
   const appliedThisWeek = stats?.appliedThisWeek ?? 0;
@@ -290,8 +226,8 @@ export default function HomePage() {
   };
 
   const selectAll = () => {
-    if (selectedIds.size === filteredJobs.length) setSelectedIds(new Set());
-    else setSelectedIds(new Set(filteredJobs.map((j) => j.id)));
+    if (selectedIds.size === baseJobs.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(baseJobs.map((j) => j.id)));
   };
 
   const handleDeleteOne = async (id: string) => {
@@ -343,24 +279,8 @@ export default function HomePage() {
     setParseLoading(true);
     setParseResult(null);
     try {
-      if (authRequired && !authenticated) {
-        setParseResult({ error: "Please sign in first with your email code." });
-        setParseLoading(false);
-        return;
-      }
-
-      const openaiKey = getApiKey();
-      if (!openaiKey) {
-        setParseResult({
-          error: "Set your OpenAI API key in the bar at the top of the app to use Parse with AI.",
-        });
-        setParseLoading(false);
-        return;
-      }
-
       const res = await appFetch(sfn("jobs-parse"), {
         method: "POST",
-        headers: { "x-openai-api-key": openaiKey },
         body: JSON.stringify({ jd: parsePaste.trim() }),
       });
 
@@ -866,7 +786,6 @@ export default function HomePage() {
         setJobs((prev) => prev.map((j) => (j.id === id ? updated : j)));
         if (detailJob?.id === id) {
           setDetailJob(updated);
-          setDetailStatusEdit(null);
         }
       } finally {
         setPatchJobLoading(false);
@@ -875,47 +794,11 @@ export default function HomePage() {
     [appFetch, authRequired, authenticated, detailJob?.id]
   );
 
-  const handleSaveEditJob = useCallback(async () => {
-    if (!detailJob?.id || !detailEditForm) return;
-    if (authRequired && !authenticated) return;
-    setEditJobLoading(true);
-    try {
-      const {
-        id: _id,
-        createdAt: _c,
-        updatedAt: _u,
-        ...patch
-      } = detailEditForm as Partial<JobRecord> & {
-        id?: string;
-        createdAt?: string;
-        updatedAt?: string;
-      };
-      const res = await appFetch(sfn("jobs-by-id", { id: detailJob.id }), {
-        method: "PATCH",
-        body: JSON.stringify(patch),
-      });
-      if (!res.ok) return;
-      const updated = (await res.json()) as JobRecord;
-      setJobs((prev) => prev.map((j) => (j.id === detailJob.id ? updated : j)));
-      setDetailJob(updated);
-      setDetailEditForm(null);
-      setDetailStatusEdit(null);
-    } finally {
-      setEditJobLoading(false);
-    }
-  }, [appFetch, authRequired, authenticated, detailEditForm, detailJob?.id]);
-
-  const updateDetailEditField = useCallback((field: keyof JobRecord, value: unknown) => {
-    setDetailEditForm((prev) => (prev ? { ...prev, [field]: value } : null));
-  }, []);
-
   useEffect(() => {
     if (!detailJob) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setDetailJob(null);
-        setDetailStatusEdit(null);
-        setDetailEditForm(null);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -962,14 +845,6 @@ export default function HomePage() {
             <div className="flex shrink-0 flex-wrap items-center gap-2 sm:gap-3">
               <button
                 type="button"
-                onClick={() => setShowFilters((v) => !v)}
-                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-beige-300 bg-white px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-beige-100 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
-              >
-                <Filter className="h-4 w-4 shrink-0" />
-                Filters
-              </button>
-              <button
-                type="button"
                 onClick={() => setExportModalOpen(true)}
                 className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-beige-300 bg-white px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-beige-100 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
               >
@@ -1005,78 +880,6 @@ export default function HomePage() {
               </button>
             </div>
           </div>
-
-          {showFilters && (
-            <div className="mt-5 grid grid-cols-1 gap-4 rounded-xl border border-beige-300 bg-beige-50/80 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
-              <div>
-                <label htmlFor="filter-status" className="sr-only">
-                  Status
-                </label>
-                <select
-                  id="filter-status"
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus((e.target.value || "") as JobStatus | "")}
-                  className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2.5 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand/20"
-                >
-                  <option value="">All statuses</option>
-                  {JOB_STATUS_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <input
-                type="text"
-                placeholder="Title"
-                value={filterTitle}
-                onChange={(e) => setFilterTitle(e.target.value)}
-                className="rounded-lg border border-beige-300 bg-white px-3 py-2.5 text-sm text-stone-800 placeholder-stone-400 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand/20"
-              />
-              <input
-                type="text"
-                placeholder="Location"
-                value={filterLocation}
-                onChange={(e) => setFilterLocation(e.target.value)}
-                className="rounded-lg border border-beige-300 bg-white px-3 py-2.5 text-sm text-stone-800 placeholder-stone-400 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand/20"
-              />
-              <input
-                type="text"
-                placeholder="Role"
-                value={filterRole}
-                onChange={(e) => setFilterRole(e.target.value)}
-                className="rounded-lg border border-beige-300 bg-white px-3 py-2.5 text-sm text-stone-800 placeholder-stone-400 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand/20"
-              />
-              <input
-                type="text"
-                placeholder="Experience"
-                value={filterExperience}
-                onChange={(e) => setFilterExperience(e.target.value)}
-                className="rounded-lg border border-beige-300 bg-white px-3 py-2.5 text-sm text-stone-800 placeholder-stone-400 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand/20"
-              />
-              <input
-                type="text"
-                placeholder="Tech stack"
-                value={filterTech}
-                onChange={(e) => setFilterTech(e.target.value)}
-                className="rounded-lg border border-beige-300 bg-white px-3 py-2.5 text-sm text-stone-800 placeholder-stone-400 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand/20"
-              />
-              <input
-                type="number"
-                placeholder="Min salary"
-                value={filterSalaryMin}
-                onChange={(e) => setFilterSalaryMin(e.target.value)}
-                className="rounded-lg border border-beige-300 bg-white px-3 py-2.5 text-sm text-stone-800 placeholder-stone-400 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand/20"
-              />
-              <input
-                type="number"
-                placeholder="Max salary"
-                value={filterSalaryMax}
-                onChange={(e) => setFilterSalaryMax(e.target.value)}
-                className="rounded-lg border border-beige-300 bg-white px-3 py-2.5 text-sm text-stone-800 placeholder-stone-400 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand/20"
-              />
-            </div>
-          )}
         </div>
       </div>
 
@@ -1124,7 +927,7 @@ export default function HomePage() {
                 onClick={selectAll}
                 className="text-sm text-orange-dark underline hover:no-underline"
               >
-                {selectedIds.size === filteredJobs.length ? "Deselect all" : "Select all"}
+                {selectedIds.size === baseJobs.length ? "Deselect all" : "Select all"}
               </button>
               <button
                 type="button"
@@ -1146,14 +949,12 @@ export default function HomePage() {
             <div className="flex min-h-[280px] items-center justify-center py-20">
               <Loader2 className="h-10 w-10 animate-spin text-orange-brand" aria-hidden />
             </div>
-          ) : filteredJobs.length === 0 ? (
+          ) : baseJobs.length === 0 ? (
             <div className="rounded-xl border border-beige-300 bg-beige-100/50 px-6 py-20 text-center sm:px-10 sm:py-24">
               <Briefcase className="mx-auto h-14 w-14 text-beige-400" aria-hidden />
-              <p className="mt-4 text-base font-medium text-stone-600 sm:text-lg">
-                No jobs match your filters
-              </p>
+              <p className="mt-4 text-base font-medium text-stone-600 sm:text-lg">No jobs yet</p>
               <p className="mt-2 text-sm text-stone-500">
-                Try adjusting filters or add a job from a JD.
+                Add a job from a JD or import from a file.
               </p>
             </div>
           ) : (
@@ -1164,8 +965,8 @@ export default function HomePage() {
                   {paginatedJobs.length === 0
                     ? 0
                     : `${startIndex + 1}-${startIndex + paginatedJobs.length}`}{" "}
-                  of {useServerPagination ? totalJobsCount : filteredJobs.length} job
-                  {(useServerPagination ? totalJobsCount : filteredJobs.length) !== 1 ? "s" : ""}
+                  of {useServerPagination ? totalJobsCount : baseJobs.length} job
+                  {(useServerPagination ? totalJobsCount : baseJobs.length) !== 1 ? "s" : ""}
                 </span>
                 {totalJobs > 0 && (
                   <span>
@@ -1320,19 +1121,35 @@ export default function HomePage() {
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-2 border-t border-beige-200 pt-4 sm:border-t-0 sm:pt-0 sm:pl-4">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDetailJob(job);
-                            setDetailStatusEdit(null);
-                            setDetailEditForm(null);
-                          }}
-                          className="inline-flex min-h-[44px] min-w-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-beige-300 bg-beige-100 px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-beige-200 focus:outline-none focus:ring-2 focus:ring-orange-brand/20 sm:flex-initial"
-                          title="View full details"
-                        >
-                          <Eye className="h-4 w-4 shrink-0" />
-                          View details
-                        </button>
+                        <div className="flex flex-col gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setDetailJob(job)}
+                            className="inline-flex min-h-[44px] min-w-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-beige-300 bg-beige-100 px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-beige-200 focus:outline-none focus:ring-2 focus:ring-orange-brand/20 sm:flex-initial"
+                            title="View full details"
+                          >
+                            <Eye className="h-4 w-4 shrink-0" />
+                            View details
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setChatSheetJdText(job.jdRaw ?? null);
+                              setChatSheetJobMetadata({
+                                title: job.title,
+                                company: job.company,
+                                location: job.location,
+                                companyPublisher: job.companyPublisher ?? undefined,
+                              });
+                              setChatSheetOpen(true);
+                            }}
+                            className="inline-flex min-h-[44px] min-w-[44px] flex-1 items-center justify-center gap-2 rounded-lg border border-beige-300 bg-beige-100 px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-beige-200 focus:outline-none focus:ring-2 focus:ring-orange-brand/20 sm:flex-initial"
+                            title="Chat with AI"
+                          >
+                            <MessageCircle className="h-4 w-4 shrink-0" />
+                            Chat with AI
+                          </button>
+                        </div>
                         <button
                           type="button"
                           onClick={() => handleDeleteOne(job.id)}
@@ -1382,11 +1199,7 @@ export default function HomePage() {
       {detailJob && (
         <div
           className="fixed inset-0 z-30 flex items-end justify-center sm:items-center sm:p-4"
-          onClick={() => {
-            setDetailJob(null);
-            setDetailStatusEdit(null);
-            setDetailEditForm(null);
-          }}
+          onClick={() => setDetailJob(null)}
           role="dialog"
           aria-modal="true"
           aria-labelledby="detail-modal-title"
@@ -1405,27 +1218,12 @@ export default function HomePage() {
                 id="detail-modal-title"
                 className="text-lg font-semibold text-stone-800 sm:text-xl"
               >
-                {detailEditForm ? "Edit job" : "Job details"}
+                Job details
               </h2>
               <div className="flex items-center gap-1">
-                {!detailEditForm && (
-                  <button
-                    type="button"
-                    onClick={() => setDetailEditForm({ ...detailJob })}
-                    className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm font-medium text-stone-700 hover:bg-beige-100 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
-                    title="Edit job"
-                  >
-                    <Pencil className="h-4 w-4 shrink-0" />
-                    Edit
-                  </button>
-                )}
                 <button
                   type="button"
-                  onClick={() => {
-                    setDetailJob(null);
-                    setDetailStatusEdit(null);
-                    setDetailEditForm(null);
-                  }}
+                  onClick={() => setDetailJob(null)}
                   className="-mr-1 flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg text-stone-500 hover:bg-beige-200 hover:text-stone-700 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
                   aria-label="Close"
                 >
@@ -1435,559 +1233,282 @@ export default function HomePage() {
             </div>
 
             <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
-              {detailEditForm ? (
-                <div className="space-y-4 max-h-[60vh] overflow-y-auto scrollbar-thin">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-stone-600">
-                        Title *
-                      </label>
-                      <input
-                        type="text"
-                        value={detailEditForm.title ?? ""}
-                        onChange={(e) => updateDetailEditField("title", e.target.value)}
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      />
+              <div className="space-y-6">
+                <section>
+                  <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
+                    Overview
+                  </h3>
+                  <h4 className="text-lg font-semibold text-stone-800 leading-tight">
+                    {emptyToDash(detailJob.title)}
+                  </h4>
+                  <p className="mt-1 text-sm text-stone-600">
+                    {emptyToDash(detailJob.company)}
+                    {detailJob.companyPublisher ? ` (${detailJob.companyPublisher})` : ""}
+                  </p>
+                </section>
+
+                <section>
+                  <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">
+                    Details
+                  </h3>
+                  <dl className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-0.5">
+                      <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                        Location
+                      </dt>
+                      <dd className="text-sm font-medium text-stone-800">
+                        {emptyToDash(detailJob.location)}
+                      </dd>
                     </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-stone-600">
-                        Company *
-                      </label>
-                      <input
-                        type="text"
-                        value={detailEditForm.company ?? ""}
-                        onChange={(e) => updateDetailEditField("company", e.target.value)}
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-stone-600">
-                        Location *
-                      </label>
-                      <input
-                        type="text"
-                        value={detailEditForm.location ?? ""}
-                        onChange={(e) => updateDetailEditField("location", e.target.value)}
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-stone-600">Role</label>
-                      <input
-                        type="text"
-                        value={detailEditForm.role ?? ""}
-                        onChange={(e) => updateDetailEditField("role", e.target.value)}
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-stone-600">
-                        Experience
-                      </label>
-                      <input
-                        type="text"
-                        value={detailEditForm.experience ?? ""}
-                        onChange={(e) => updateDetailEditField("experience", e.target.value)}
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-stone-600">
-                        Job type
-                      </label>
-                      <input
-                        type="text"
-                        value={detailEditForm.jobType ?? ""}
-                        onChange={(e) => updateDetailEditField("jobType", e.target.value)}
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-stone-600">
+                    <div className="space-y-0.5">
+                      <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
                         Status
-                      </label>
-                      <select
-                        value={detailEditForm.status ?? "applied"}
-                        onChange={(e) =>
-                          updateDetailEditField("status", e.target.value as JobStatus)
-                        }
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      >
-                        {JOB_STATUS_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
+                      </dt>
+                      <dd className="text-sm font-medium capitalize text-stone-800">
+                        {detailJob.status}
+                      </dd>
                     </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-stone-600">
-                        Applied date
-                      </label>
-                      <input
-                        type="date"
-                        value={
-                          detailEditForm.appliedAt
-                            ? (() => {
-                                const d = new Date(detailEditForm.appliedAt);
-                                return Number.isNaN(d.getTime())
-                                  ? ""
-                                  : d.toISOString().slice(0, 10);
-                              })()
-                            : ""
-                        }
-                        onChange={(e) =>
-                          updateDetailEditField("appliedAt", e.target.value || undefined)
-                        }
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      />
+                    <div className="space-y-0.5">
+                      <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                        Applied
+                      </dt>
+                      <dd className="text-sm text-stone-800">
+                        {formatAppliedAt(detailJob.appliedAt) ?? "—"}
+                      </dd>
                     </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-stone-600">
-                        Salary min
-                      </label>
-                      <input
-                        type="number"
-                        value={detailEditForm.salaryMin ?? ""}
-                        onChange={(e) =>
-                          updateDetailEditField(
-                            "salaryMin",
-                            e.target.value ? Number(e.target.value) : null
-                          )
-                        }
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-stone-600">
-                        Salary max
-                      </label>
-                      <input
-                        type="number"
-                        value={detailEditForm.salaryMax ?? ""}
-                        onChange={(e) =>
-                          updateDetailEditField(
-                            "salaryMax",
-                            e.target.value ? Number(e.target.value) : null
-                          )
-                        }
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-stone-600">
-                        Seniority
-                      </label>
-                      <input
-                        type="text"
-                        value={detailEditForm.seniority ?? ""}
-                        onChange={(e) => updateDetailEditField("seniority", e.target.value)}
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-stone-600">
-                        Availability
-                      </label>
-                      <input
-                        type="text"
-                        value={detailEditForm.availability ?? ""}
-                        onChange={(e) => updateDetailEditField("availability", e.target.value)}
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="mb-1 block text-xs font-medium text-stone-600">
-                        Education
-                      </label>
-                      <input
-                        type="text"
-                        value={detailEditForm.education ?? ""}
-                        onChange={(e) => updateDetailEditField("education", e.target.value)}
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-stone-600">
-                        Posted at
-                      </label>
-                      <input
-                        type="text"
-                        value={detailEditForm.postedAt ?? ""}
-                        onChange={(e) => updateDetailEditField("postedAt", e.target.value)}
-                        placeholder="YYYY-MM-DD"
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-stone-600">
-                        Source
-                      </label>
-                      <input
-                        type="text"
-                        value={detailEditForm.source ?? ""}
-                        onChange={(e) => updateDetailEditField("source", e.target.value)}
-                        className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-stone-600">
-                      Tech stack (comma-separated)
-                    </label>
-                    <input
-                      type="text"
-                      value={detailEditForm.techStack?.join(", ") ?? ""}
-                      onChange={(e) =>
-                        updateDetailEditField(
-                          "techStack",
-                          e.target.value
-                            .split(",")
-                            .map((t) => t.trim())
-                            .filter(Boolean)
-                        )
-                      }
-                      className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-stone-600">Notes</label>
-                    <textarea
-                      rows={3}
-                      value={detailEditForm.notes ?? ""}
-                      onChange={(e) => updateDetailEditField("notes", e.target.value)}
-                      className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  <section>
-                    <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
-                      Overview
-                    </h3>
-                    <h4 className="text-lg font-semibold text-stone-800 leading-tight">
-                      {emptyToDash(detailJob.title)}
-                    </h4>
-                    <p className="mt-1 text-sm text-stone-600">
-                      {emptyToDash(detailJob.company)}
-                      {detailJob.companyPublisher ? ` (${detailJob.companyPublisher})` : ""}
-                    </p>
-                  </section>
-
-                  <section>
-                    <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">
-                      Details
-                    </h3>
-                    <dl className="grid gap-4 sm:grid-cols-2">
+                    {detailJob.role && (
                       <div className="space-y-0.5">
                         <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
-                          Location
+                          Role
                         </dt>
-                        <dd className="text-sm font-medium text-stone-800">
-                          {emptyToDash(detailJob.location)}
-                        </dd>
-                      </div>
-                      <div className="space-y-0.5">
-                        <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
-                          Status
-                        </dt>
-                        <dd className="text-sm font-medium capitalize text-stone-800">
-                          {detailJob.status}
-                        </dd>
-                      </div>
-                      <div className="space-y-0.5">
-                        <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
-                          Applied
-                        </dt>
-                        <dd className="text-sm text-stone-800">
-                          {formatAppliedAt(detailJob.appliedAt) ?? "—"}
-                        </dd>
-                      </div>
-                      {detailJob.role && (
-                        <div className="space-y-0.5">
-                          <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
-                            Role
-                          </dt>
-                          <dd className="text-sm text-stone-800">{detailJob.role}</dd>
-                        </div>
-                      )}
-                      {detailJob.experience && (
-                        <div className="space-y-0.5">
-                          <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
-                            Experience
-                          </dt>
-                          <dd className="text-sm text-stone-800">{detailJob.experience}</dd>
-                        </div>
-                      )}
-                      {detailJob.jobType && (
-                        <div className="space-y-0.5">
-                          <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
-                            Type
-                          </dt>
-                          <dd className="text-sm text-stone-800">{detailJob.jobType}</dd>
-                        </div>
-                      )}
-                      {detailJob.availability && (
-                        <div className="space-y-0.5">
-                          <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
-                            Availability
-                          </dt>
-                          <dd className="text-sm text-stone-800">{detailJob.availability}</dd>
-                        </div>
-                      )}
-                      <div className="space-y-0.5">
-                        <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
-                          Salary
-                        </dt>
-                        <dd className="text-sm font-medium text-stone-800">
-                          {formatSalary(detailJob)}
-                        </dd>
-                      </div>
-                      {detailJob.product && (
-                        <div className="space-y-0.5">
-                          <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
-                            Product
-                          </dt>
-                          <dd className="text-sm text-stone-800">{detailJob.product}</dd>
-                        </div>
-                      )}
-                      {detailJob.seniority && (
-                        <div className="space-y-0.5">
-                          <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
-                            Seniority
-                          </dt>
-                          <dd className="text-sm text-stone-800">{detailJob.seniority}</dd>
-                        </div>
-                      )}
-                      {detailJob.postedAt && (
-                        <div className="space-y-0.5">
-                          <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
-                            Posted
-                          </dt>
-                          <dd className="text-sm text-stone-800">
-                            {formatPostedAt(detailJob.postedAt)}
-                          </dd>
-                        </div>
-                      )}
-                      {detailJob.education && (
-                        <div className="space-y-0.5 sm:col-span-2">
-                          <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
-                            Education
-                          </dt>
-                          <dd className="text-sm text-stone-800">{detailJob.education}</dd>
-                        </div>
-                      )}
-                      {detailJob.source && (
-                        <div className="space-y-0.5">
-                          <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
-                            Source
-                          </dt>
-                          <dd className="text-sm text-stone-800">{detailJob.source}</dd>
-                        </div>
-                      )}
-                    </dl>
-                  </section>
-
-                  <section>
-                    <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">
-                      Update status & date
-                    </h3>
-                    {detailStatusEdit === null ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const d = new Date(detailJob.appliedAt);
-                          const appliedAt = Number.isNaN(d.getTime())
-                            ? ""
-                            : d.toISOString().slice(0, 10);
-                          setDetailStatusEdit({
-                            status: detailJob.status,
-                            appliedAt: appliedAt || "",
-                          });
-                        }}
-                        className="rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm font-medium text-stone-700 hover:bg-beige-100 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
-                      >
-                        Change status & date
-                      </button>
-                    ) : (
-                      <div className="flex flex-wrap items-end gap-3">
-                        <div className="space-y-1">
-                          <label
-                            htmlFor="detail-edit-status"
-                            className="block text-xs font-medium text-stone-600"
-                          >
-                            Status
-                          </label>
-                          <select
-                            id="detail-edit-status"
-                            value={detailStatusEdit.status}
-                            onChange={(e) =>
-                              setDetailStatusEdit((prev) =>
-                                prev ? { ...prev, status: e.target.value as JobStatus } : null
-                              )
-                            }
-                            className="rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand/20"
-                          >
-                            {JOB_STATUS_OPTIONS.map((opt) => (
-                              <option key={opt.value} value={opt.value}>
-                                {opt.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <label
-                            htmlFor="detail-edit-applied"
-                            className="block text-xs font-medium text-stone-600"
-                          >
-                            Applied date
-                          </label>
-                          <input
-                            id="detail-edit-applied"
-                            type="date"
-                            value={detailStatusEdit.appliedAt}
-                            onChange={(e) =>
-                              setDetailStatusEdit((prev) =>
-                                prev ? { ...prev, appliedAt: e.target.value } : null
-                              )
-                            }
-                            className="rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-1 focus:ring-orange-brand/20"
-                          />
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!detailStatusEdit.appliedAt.trim()) return;
-                              handlePatchJob(detailJob.id, {
-                                status: detailStatusEdit.status,
-                                appliedAt: detailStatusEdit.appliedAt.trim(),
-                              });
-                            }}
-                            disabled={patchJobLoading || !detailStatusEdit.appliedAt.trim()}
-                            className="rounded-lg bg-orange-brand px-3 py-2 text-sm font-medium text-white hover:bg-orange-dark disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-orange-brand/30"
-                          >
-                            {patchJobLoading ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              "Save"
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDetailStatusEdit(null)}
-                            className="rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm font-medium text-stone-700 hover:bg-beige-100 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
-                          >
-                            Cancel
-                          </button>
-                        </div>
+                        <dd className="text-sm text-stone-800">{detailJob.role}</dd>
                       </div>
                     )}
+                    {detailJob.experience && (
+                      <div className="space-y-0.5">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                          Experience
+                        </dt>
+                        <dd className="text-sm text-stone-800">{detailJob.experience}</dd>
+                      </div>
+                    )}
+                    {detailJob.jobType && (
+                      <div className="space-y-0.5">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                          Type
+                        </dt>
+                        <dd className="text-sm text-stone-800">{detailJob.jobType}</dd>
+                      </div>
+                    )}
+                    {detailJob.availability && (
+                      <div className="space-y-0.5">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                          Availability
+                        </dt>
+                        <dd className="text-sm text-stone-800">{detailJob.availability}</dd>
+                      </div>
+                    )}
+                    <div className="space-y-0.5">
+                      <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                        Salary
+                      </dt>
+                      <dd className="text-sm font-medium text-stone-800">
+                        {formatSalary(detailJob)}
+                      </dd>
+                    </div>
+                    {detailJob.product && (
+                      <div className="space-y-0.5">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                          Product
+                        </dt>
+                        <dd className="text-sm text-stone-800">{detailJob.product}</dd>
+                      </div>
+                    )}
+                    {detailJob.seniority && (
+                      <div className="space-y-0.5">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                          Seniority
+                        </dt>
+                        <dd className="text-sm text-stone-800">{detailJob.seniority}</dd>
+                      </div>
+                    )}
+                    {detailJob.postedAt && (
+                      <div className="space-y-0.5">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                          Posted
+                        </dt>
+                        <dd className="text-sm text-stone-800">
+                          {formatPostedAt(detailJob.postedAt)}
+                        </dd>
+                      </div>
+                    )}
+                    {detailJob.education && (
+                      <div className="space-y-0.5 sm:col-span-2">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                          Education
+                        </dt>
+                        <dd className="text-sm text-stone-800">{detailJob.education}</dd>
+                      </div>
+                    )}
+                    {detailJob.source && (
+                      <div className="space-y-0.5">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-stone-500">
+                          Source
+                        </dt>
+                        <dd className="text-sm text-stone-800">{detailJob.source}</dd>
+                      </div>
+                    )}
+                  </dl>
+                </section>
+
+                <section>
+                  <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">
+                    Update status
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-stone-700">
+                    <span className="font-semibold uppercase tracking-[0.14em] text-stone-500">
+                      Status:
+                    </span>
+                    <span
+                      className="inline-flex rounded-md bg-beige-200 px-2 py-0.5 font-medium capitalize text-stone-700"
+                      title="Application status"
+                    >
+                      {detailJob.status}
+                    </span>
+                    {detailJob.appliedAt && (
+                      <span className="text-stone-500">
+                        · Applied {formatAppliedAt(detailJob.appliedAt)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-stone-700">
+                    <span className="font-semibold uppercase tracking-wide text-[10px] text-stone-500">
+                      Update status:
+                    </span>
+                    {JOB_STATUS_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() =>
+                          handlePatchJob(detailJob.id, {
+                            status: opt.value,
+                          })
+                        }
+                        disabled={patchJobLoading || detailJob.status === opt.value}
+                        className={`inline-flex items-center rounded-md border px-3 py-1 capitalize text-xs font-medium transition-colors ${
+                          detailJob.status === opt.value
+                            ? "border-orange-brand bg-orange-brand text-white cursor-default"
+                            : "border-beige-300 bg-white hover:bg-beige-100"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                {(detailJob.collaborationTools?.length ?? 0) > 0 && (
+                  <section>
+                    <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
+                      Collaboration tools
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {detailJob.collaborationTools!.map((t) => (
+                        <span
+                          key={t}
+                          className="inline-flex items-center rounded-lg bg-beige-200/80 px-2.5 py-1 text-xs font-medium text-stone-700"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
                   </section>
+                )}
 
-                  {(detailJob.collaborationTools?.length ?? 0) > 0 && (
-                    <section>
-                      <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
-                        Collaboration tools
-                      </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {detailJob.collaborationTools!.map((t) => (
-                          <span
-                            key={t}
-                            className="inline-flex items-center rounded-lg bg-beige-200/80 px-2.5 py-1 text-xs font-medium text-stone-700"
-                          >
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    </section>
-                  )}
+                {detailJob.techStack.length > 0 && (
+                  <section>
+                    <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">
+                      Tech stack
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {detailJob.techStack.map((t) => (
+                        <span
+                          key={t}
+                          className="inline-flex items-center gap-1 rounded-lg bg-beige-200 px-2.5 py-1 text-xs font-medium text-stone-700"
+                        >
+                          <Code className="h-3.5 w-3.5 shrink-0" />
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </section>
+                )}
 
-                  {detailJob.techStack.length > 0 && (
-                    <section>
-                      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-stone-500">
-                        Tech stack
-                      </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {detailJob.techStack.map((t) => (
-                          <span
-                            key={t}
-                            className="inline-flex items-center gap-1 rounded-lg bg-beige-200 px-2.5 py-1 text-xs font-medium text-stone-700"
-                          >
-                            <Code className="h-3.5 w-3.5 shrink-0" />
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    </section>
-                  )}
+                {detailJob.notes && (
+                  <section>
+                    <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
+                      Notes
+                    </h3>
+                    <p className="rounded-lg bg-beige-100/80 p-3 text-sm text-stone-800 whitespace-pre-wrap">
+                      {detailJob.notes}
+                    </p>
+                  </section>
+                )}
 
-                  {detailJob.notes && (
-                    <section>
-                      <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
-                        Notes
-                      </h3>
-                      <p className="rounded-lg bg-beige-100/80 p-3 text-sm text-stone-800 whitespace-pre-wrap">
-                        {detailJob.notes}
-                      </p>
-                    </section>
-                  )}
-
-                  {detailJob.jdRaw && (
-                    <section>
-                      <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
-                        Full job description
-                      </h3>
-                      <div className="max-h-64 overflow-y-auto rounded-lg border border-beige-300 bg-beige-100/80 p-4 text-xs leading-relaxed text-stone-700 whitespace-pre-wrap scrollbar-thin">
-                        {detailJob.jdRaw}
-                      </div>
-                    </section>
-                  )}
-                </div>
-              )}
+                {detailJob.jdRaw && (
+                  <section>
+                    <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-stone-500">
+                      Full job description
+                    </h3>
+                    <div className="max-h-64 overflow-y-auto rounded-lg border border-beige-300 bg-beige-100/80 p-4 text-xs leading-relaxed text-stone-700 whitespace-pre-wrap scrollbar-thin">
+                      {detailJob.jdRaw}
+                    </div>
+                  </section>
+                )}
+              </div>
             </div>
 
             <div className="sticky bottom-0 flex shrink-0 justify-end gap-2 border-t border-beige-300 bg-beige-50/95 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
-              {detailEditForm ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setDetailEditForm(null)}
-                    className="inline-flex min-h-[44px] items-center justify-center rounded-lg border border-beige-300 bg-white px-4 py-2.5 text-sm font-medium text-stone-700 hover:bg-beige-100 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveEditJob}
-                    disabled={
-                      editJobLoading ||
-                      !detailEditForm.title?.trim() ||
-                      !detailEditForm.company?.trim()
-                    }
-                    className="inline-flex min-h-[44px] min-w-[100px] items-center justify-center rounded-lg bg-orange-brand px-4 py-2.5 text-sm font-medium text-white hover:bg-orange-dark disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-orange-brand/30"
-                  >
-                    {editJobLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDetailJob(null);
-                    setDetailStatusEdit(null);
-                    setDetailEditForm(null);
-                  }}
-                  className="inline-flex min-h-[44px] min-w-[120px] items-center justify-center rounded-lg border border-beige-300 bg-white px-4 py-2.5 text-sm font-medium text-stone-700 shadow-sm hover:bg-beige-100 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
-                >
-                  Close
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setDetailJob(null);
+                  setChatSheetJdText(detailJob?.jdRaw ?? null);
+                  setChatSheetJobMetadata({
+                    title: detailJob?.title,
+                    company: detailJob?.company,
+                    location: detailJob?.location,
+                    companyPublisher: detailJob?.companyPublisher ?? undefined,
+                  });
+                  setChatSheetOpen(true);
+                }}
+                className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-beige-300 bg-white px-4 py-2.5 text-sm font-medium text-stone-700 shadow-sm hover:bg-beige-100 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
+              >
+                <MessageCircle className="h-4 w-4 shrink-0" />
+                Chat with AI
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailJob(null)}
+                className="inline-flex min-h-[44px] min-w-[120px] items-center justify-center rounded-lg border border-beige-300 bg-white px-4 py-2.5 text-sm font-medium text-stone-700 shadow-sm hover:bg-beige-100 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
       )}
+
+      <ChatBottomSheet
+        open={chatSheetOpen}
+        onClose={() => {
+          setChatSheetOpen(false);
+          setChatSheetJdText(null);
+          setChatSheetJobMetadata(null);
+        }}
+        initialJdText={chatSheetJdText ?? undefined}
+        jobMetadata={chatSheetJobMetadata ?? undefined}
+      />
 
       {parseModalOpen && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-stone-900/50 p-4">

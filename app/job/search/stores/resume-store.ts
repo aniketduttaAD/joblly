@@ -19,7 +19,6 @@ interface ResumeStore {
   }) => Promise<string>;
   deleteResume: (id: string) => Promise<void>;
   selectResume: (id: string | null) => void;
-  verifyResume: (id: string) => Promise<void>;
   reparseResume: (id: string) => Promise<void>;
   updateResume: (
     id: string,
@@ -39,15 +38,8 @@ async function deleteResumeArtifacts(id: string): Promise<void> {
 
   for (const chat of linkedChats) {
     await db.messages.where("chatId").equals(chat.id).delete();
+    await db.jobDescriptions.where("chatId").equals(chat.id).delete();
     await db.chats.delete(chat.id);
-  }
-
-  const allEmbeddings = await db.embeddings.toArray();
-  const resumeEmbeddings = allEmbeddings.filter(
-    (embedding) => embedding.entityId === id && embedding.entityType === "resume"
-  );
-  for (const embedding of resumeEmbeddings) {
-    await db.embeddings.delete(embedding.id);
   }
 }
 
@@ -75,14 +67,17 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
       if (!response.ok) {
         throw await parseError(response, "Failed to load resumes");
       }
-      const data = (await response.json()) as { resumes?: Resume[] };
-      const resumes = Array.isArray(data.resumes)
-        ? data.resumes.map((resume) => ({
-            ...resume,
-            createdAt: new Date(resume.createdAt),
-            updatedAt: new Date(resume.updatedAt),
-          }))
-        : [];
+      const data = (await response.json()) as Resume[] | { resumes?: Resume[] };
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray((data as { resumes?: Resume[] }).resumes)
+          ? (data as { resumes: Resume[] }).resumes
+          : [];
+      const resumes = list.map((resume) => ({
+        ...resume,
+        createdAt: new Date(resume.createdAt),
+        updatedAt: new Date(resume.updatedAt),
+      }));
 
       const selectedResumeId = get().selectedResumeId;
       set({
@@ -157,51 +152,13 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
     set({ selectedResumeId: id });
   },
 
-  verifyResume: async (id) => {
-    const { getApiKey } = await import("@/app/job/search/utils/api-key");
-    const apiKey = getApiKey();
-
-    if (!apiKey) {
-      throw new Error(
-        "OpenAI API key is required to verify resumes. Please set your API key in settings first."
-      );
-    }
-
-    const current = get().resumes.find((resume) => resume.id === id);
-    if (!current) {
-      throw new Error("Resume not found");
-    }
-
-    const response = await fetchWithAuth(sfn("resume-by-id", { id }), {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ isVerified: true }),
-    });
-    if (!response.ok) {
-      throw await parseError(response, "Failed to verify resume");
-    }
-
-    set((state) => ({
-      resumes: state.resumes.map((resume) =>
-        resume.id === id ? { ...resume, isVerified: true, updatedAt: new Date() } : resume
-      ),
-      lastLoadedAt: Date.now(),
-    }));
-
-    // Embedding generation is no longer required; verification now only
-    // updates the resume metadata without additional background processing.
-  },
-
   reparseResume: async (id) => {
     const current = get().resumes.find((resume) => resume.id === id);
     if (!current) {
       throw new Error("Resume not found");
     }
 
-    const { parseResumeTextEnhanced } =
-      await import("@/app/job/search/utils/enhanced-resume-parser");
+    const { parseResumeTextEnhanced } = await import("@/app/job/search/utils/resume-parser");
     const parsedContent = parseResumeTextEnhanced(current.content);
 
     const response = await fetchWithAuth(sfn("resume-by-id", { id }), {
@@ -212,7 +169,6 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
       body: JSON.stringify({
         content: current.content,
         parsedContent,
-        isVerified: false,
       }),
     });
     if (!response.ok) {
@@ -225,7 +181,6 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
           ? {
               ...resume,
               parsedContent,
-              isVerified: false,
               updatedAt: new Date(),
             }
           : resume

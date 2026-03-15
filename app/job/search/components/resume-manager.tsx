@@ -6,7 +6,7 @@ export function ResumeManager() {
   return (
     <ResumeLibrary
       title="Resume Manager"
-      description="Upload, preview, verify, and manage user-linked PDF resumes stored in your tracker."
+      description="Upload, preview, and manage user-linked PDF resumes stored in your tracker."
     />
   );
 }

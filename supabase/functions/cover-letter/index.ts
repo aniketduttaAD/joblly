@@ -3,7 +3,7 @@ import { handleCors, errorResponse } from "../_shared/cors.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
 function buildPhase1Prompt(): string {
-  return `You are a job applicant writing a cover letter. Write AS YOURSELF, using ONLY information from your resume and the job description.
+  return `You are a job applicant writing a cover letter. Write AS YOURSELF, using ONLY information from the parsed resume data and job description.
 
 PHASE 1: EVIDENCE-FIRST APPROACH
 
@@ -13,6 +13,9 @@ CONSTRAINTS:
 3. Write in first person
 4. Use past tense for experience
 5. Be direct and factual
+6. Never output placeholders like [Your Address], [City], [Date], [Email], [Phone]
+7. Never guess the candidate name - only use the provided candidate name exactly
+8. Do not include a postal address block
 
 WRITING STYLE:
 - Natural but professional
@@ -27,7 +30,7 @@ AVOID:
 }
 
 function buildPhase2Prompt(): string {
-  return `You are a job applicant writing a cover letter. Write AS YOURSELF, using ONLY information from your resume and the job description.
+  return `You are a job applicant writing a cover letter. Write AS YOURSELF, using ONLY information from the parsed resume data and job description.
 
 PHASE 2: CONVERSATIONAL APPROACH
 
@@ -35,6 +38,7 @@ CONSTRAINTS:
 1. Every claim must map to resume or JD evidence
 2. Write like you're speaking conversationally but professionally
 3. Use natural language patterns - vary from Phase 1's structure
+4. Never output placeholders or fake contact/address lines
 
 WRITING STYLE:
 - Conversational but professional
@@ -60,7 +64,9 @@ Combine the best of Phase 1 and Phase 2, apply all constraints:
 2. SENTENCE RHYTHM: Mix short, medium, longer sentences
 3. VERB DISCIPLINE: Use "built", "led", "improved", "created". Avoid "leveraged", "spearheaded", "utilized"
 4. NO META-COMMENTARY: Remove "This demonstrates...", "I believe..."
-5. FORMAT: Proper business letter format, 3-4 paragraphs
+5. FORMAT: 3-4 clean paragraphs only. Start with "Dear Hiring Team," and end with a natural sign-off using the provided candidate name only.
+6. NEVER output placeholders like [Your Address], [Date], [Email], [Phone], or bracket fields of any kind.
+7. NEVER misspell or shorten the candidate name.
 
 CRITICAL - REPLACE ALL AI PHRASES:
 ❌ "I'm drawn to" → state interest directly
@@ -92,9 +98,9 @@ Deno.serve(async (req: Request) => {
 
   if (req.method !== "POST") return errorResponse("Method not allowed", 405);
 
-  const apiKey = req.headers.get("x-openai-api-key");
+  const apiKey = (Deno.env.get("OPENAI_API_KEY") || "").trim();
   if (!apiKey) {
-    return errorResponse("OpenAI API key not provided. Please set your API key in settings.", 400);
+    return errorResponse("OpenAI API key is not configured on the server.", 500);
   }
 
   let body: Record<string, unknown>;
@@ -105,19 +111,38 @@ Deno.serve(async (req: Request) => {
   }
 
   const { resumeData, jdData } = body;
+  const jobMetadata = body.jobMetadata as
+    | { title?: string; company?: string; location?: string; aboutCompany?: string }
+    | undefined;
 
   if (!resumeData || !jdData) {
     return errorResponse("Resume and JD data are required", 400);
-  }
-  if (!(resumeData as { isVerified?: boolean }).isVerified) {
-    return errorResponse("Resume must be verified before use", 400);
   }
 
   const resumeContent = formatResumeContent(resumeData as ResumeData);
   const jdContent = (jdData as { content?: string }).content ?? "";
 
-  const contextPrompt = `RESUME CONTENT:\n${resumeContent}\n\nJOB DESCRIPTION:\n${jdContent}\n\nUse ONLY the resume and job description above to write the cover letter.`;
-  const coverLetterPrompt = `Write a professional cover letter for this job application. Be 3-4 paragraphs, connect experience to requirements, professional but conversational.`;
+  const metadataPrompt = [
+    jobMetadata?.title ? `JOB TITLE: ${jobMetadata.title}` : "",
+    jobMetadata?.company ? `COMPANY: ${jobMetadata.company}` : "",
+    jobMetadata?.location ? `LOCATION: ${jobMetadata.location}` : "",
+    jobMetadata?.aboutCompany ? `ABOUT COMPANY: ${jobMetadata.aboutCompany}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const candidateName = extractCandidateName((resumeData as ResumeData).name);
+  const contextPrompt = `${metadataPrompt ? `${metadataPrompt}\n\n` : ""}CANDIDATE NAME:\n${candidateName}\n\nPARSED RESUME CONTENT:\n${resumeContent}\n\nJOB DESCRIPTION:\n${jdContent}\n\nUse ONLY the parsed resume and job description above to write the cover letter.`;
+  const coverLetterPrompt = `Write a professional cover letter for this job application.
+
+Rules:
+- 3 to 4 paragraphs only
+- No postal address block
+- No placeholders
+- Start with "Dear Hiring Team,"
+- End with "Best regards," followed by the exact candidate name
+- Keep it specific to the role and company
+- Use only true facts from the parsed resume`;
 
   const baseMessages = [
     { role: "user" as const, content: contextPrompt },
@@ -225,7 +250,6 @@ Deno.serve(async (req: Request) => {
 
 interface ResumeData {
   name: string;
-  content: string;
   parsedContent: {
     skills?: string[];
     experience?: Array<{
@@ -262,6 +286,13 @@ function formatResumeContent(resume: ResumeData): string {
       content += `- ${e.degree}${e.field ? ` in ${e.field}` : ""} from ${e.institution}\n`;
     content += "\n";
   }
-  content += `\nFULL TEXT:\n${resume.content}`;
   return content;
+}
+
+function extractCandidateName(name: string): string {
+  return name
+    .replace(/\.pdf$/i, "")
+    .replace(/\s*resume$/i, "")
+    .replace(/\s*-\s*.*$/, "")
+    .trim();
 }

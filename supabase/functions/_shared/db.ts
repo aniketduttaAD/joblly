@@ -320,7 +320,7 @@ export async function createResume(
     content_type: file.type || "application/pdf",
     content: asset.content,
     parsed_content: JSON.stringify(asset.parsedContent),
-    is_verified: false,
+    is_verified: true,
     created_at: now,
     updated_at: now,
   });
@@ -332,7 +332,7 @@ export async function createResume(
     name,
     content: asset.content,
     parsedContent: asset.parsedContent,
-    isVerified: false,
+    isVerified: true,
     createdAt: new Date(now),
     updatedAt: new Date(now),
     sourceFileName: file.name,
@@ -378,13 +378,16 @@ export async function deleteResume(id: string, ownerId: string): Promise<boolean
   if (!current) return false;
 
   const supabase = createAdminClient();
+  const storagePath = `${ownerId}/${id}`;
+
+  const { error: storageError } = await supabase.storage.from("resumes").remove([storagePath]);
+  if (storageError) {
+    console.error("deleteResume: storage remove failed", storageError);
+    throw storageError;
+  }
+
   const { error } = await supabase.from("resumes").delete().eq("id", id).eq("owner_id", ownerId);
-
   if (error) throw error;
-
-  try {
-    await supabase.storage.from("resumes").remove([`${ownerId}/${id}`]);
-  } catch {}
 
   return true;
 }

@@ -28,8 +28,6 @@ Deno.serve(async (req: Request) => {
 
   if (req.method !== "POST") return errorResponse("Method not allowed", 405);
 
-  const apiKey = req.headers.get("x-openai-api-key") ?? Deno.env.get("OPENAI_API_KEY") ?? null;
-
   let body: Record<string, unknown>;
   try {
     body = await req.json();
@@ -43,7 +41,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const result = await withDeadline(parseJobDescription(jdText, apiKey), 50_000);
+    const result = await withDeadline(parseJobDescription(jdText, null), 50_000);
     const jobRecord = parseResultToJobRecord(result, jdText);
     return jsonResponse({
       parsed: result,

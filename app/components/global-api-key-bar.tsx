@@ -5,7 +5,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Key, Eye, EyeOff, Briefcase, Sparkles, Search, FileText, Lock } from "lucide-react";
-import { getApiKey, setApiKey, hasApiKey } from "@/app/job/search/utils/api-key";
 import {
   getJobsApiKey,
   setJobsApiKey,
@@ -57,16 +56,13 @@ export function GlobalApiKeyBar() {
   const [jobsApiKey, setJobsApiKeyValue] = useState("");
   const [showJobsApiKey, setShowJobsApiKey] = useState(false);
   const [jobsApiKeyError, setJobsApiKeyError] = useState("");
-  const [openaiConfigured, setOpenaiConfigured] = useState(false);
   const [jobsConfigured, setJobsConfigured] = useState(false);
-  const [openaiSaveMessage, setOpenaiSaveMessage] = useState("");
   const [jobsSaveMessage, setJobsSaveMessage] = useState("");
   const [activeTab, setActiveTab] = useState<"keys" | "resumes">("keys");
 
   useEffect(() => {
     const id = setTimeout(() => {
       setMounted(true);
-      setOpenaiConfigured(hasApiKey());
       setJobsConfigured(!!getJobsApiKey());
     }, 0);
     return () => clearTimeout(id);
@@ -75,7 +71,6 @@ export function GlobalApiKeyBar() {
   useEffect(() => {
     if (!mounted) return;
     const onUpdate = () => {
-      setOpenaiConfigured(hasApiKey());
       setJobsConfigured(!!getJobsApiKey());
     };
     window.addEventListener("apiKeyUpdated", onUpdate);
@@ -83,31 +78,13 @@ export function GlobalApiKeyBar() {
   }, [mounted]);
 
   const handleOpen = () => {
-    setApiKeyValue(getApiKey() || "");
+    setApiKeyValue("");
     setJobsApiKeyValue(getJobsApiKey() || "");
     setApiKeyError("");
     setJobsApiKeyError("");
-    setOpenaiSaveMessage("");
     setJobsSaveMessage("");
     setActiveTab("keys");
     setIsOpen(true);
-  };
-
-  const handleSaveOpenAI = () => {
-    if (!apiKey.trim()) {
-      setApiKeyError("API key cannot be empty");
-      return;
-    }
-    if (!apiKey.startsWith("sk-")) {
-      setApiKeyError("Invalid OpenAI API key format. Should start with 'sk-'");
-      return;
-    }
-    setApiKey(apiKey.trim());
-    setApiKeyError("");
-    setOpenaiConfigured(true);
-    setOpenaiSaveMessage("OpenAI API key saved in this browser.");
-    setTimeout(() => setOpenaiSaveMessage(""), 3000);
-    window.dispatchEvent(new Event("apiKeyUpdated"));
   };
 
   const handleSaveJobs = () => {
@@ -137,7 +114,7 @@ export function GlobalApiKeyBar() {
     return () => window.removeEventListener("openApiKeyDialog", openDialog);
   }, []);
 
-  const configuredCount = (openaiConfigured ? 1 : 0) + (jobsConfigured ? 1 : 0);
+  const configuredCount = jobsConfigured ? 1 : 0;
 
   return (
     <>
@@ -182,9 +159,13 @@ export function GlobalApiKeyBar() {
             >
               <Key className="h-4 w-4 shrink-0" />
               <span className="hidden sm:inline">
-                {mounted ? (configuredCount >= 2 ? "API Keys: Set" : "Set API Key") : "Set API Key"}
+                {mounted
+                  ? configuredCount >= 1
+                    ? "Settings: Configured"
+                    : "Settings"
+                  : "Settings"}
               </span>
-              <span className="sm:hidden">API</span>
+              <span className="sm:hidden">Settings</span>
             </button>
             {authRequired && authenticated && (
               <button
@@ -208,7 +189,7 @@ export function GlobalApiKeyBar() {
           className={`${activeTab === "resumes" ? "max-w-4xl" : "max-w-md"} max-h-[90vh] overflow-y-auto`}
         >
           <DialogHeader>
-            <DialogTitle>API Keys</DialogTitle>
+            <DialogTitle>Settings</DialogTitle>
             <DialogDescription>
               Keys stay in your browser. Resumes are stored in your tracker storage and linked to
               your signed-in account.
@@ -244,51 +225,7 @@ export function GlobalApiKeyBar() {
 
             {activeTab === "keys" ? (
               <div className="space-y-6">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-stone-700">OpenAI API Key</label>
-                  <p className="text-xs text-stone-500">
-                    Used for AI features. Get your key from{" "}
-                    <a
-                      href="https://platform.openai.com/api-keys"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-orange-dark underline"
-                    >
-                      platform.openai.com
-                    </a>
-                  </p>
-                  <div className="relative">
-                    <Input
-                      type={showApiKey ? "text" : "password"}
-                      value={apiKey}
-                      onChange={(e) => {
-                        setApiKeyValue(e.target.value);
-                        setApiKeyError("");
-                        setOpenaiSaveMessage("");
-                      }}
-                      placeholder="sk-..."
-                      className={apiKeyError ? "border-red-500" : ""}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="absolute right-0 top-0 h-full"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                    >
-                      {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                  {apiKeyError && <p className="text-sm text-red-600">{apiKeyError}</p>}
-                  {!apiKeyError && openaiSaveMessage && (
-                    <p className="text-sm text-green-600">{openaiSaveMessage}</p>
-                  )}
-                  <Button type="button" variant="outline" size="sm" onClick={handleSaveOpenAI}>
-                    Save OpenAI Key
-                  </Button>
-                </div>
-
-                <div className="space-y-2 border-t border-beige-300 pt-4">
+                <div className="space-y-2 border-t border-beige-300 pt-2">
                   <label className="text-sm font-medium text-stone-700">Jobs API Key</label>
                   <p className="text-xs text-stone-500">
                     Used to fetch job listings. Get a key at{" "}
@@ -360,7 +297,7 @@ export function GlobalApiKeyBar() {
               <ResumeLibrary
                 compact
                 title="Resume Storage"
-                description="Upload, preview, verify, and delete PDFs stored in your tracker."
+                description="Upload, preview, and delete PDFs stored in your tracker."
               />
             )}
           </div>

@@ -1,14 +1,32 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Your sign-in code</title>
-</head>
-<body style="font-family: system-ui, -apple-system, sans-serif; line-height: 1.5; color: #1a1a1a; max-width: 480px; margin: 0 auto; padding: 24px;">
-  <h2 style="margin: 0 0 16px; font-size: 1.25rem;">Your sign-in code</h2>
-  <p style="margin: 0 0 16px;">Use this code to sign in. It was sent to <strong>{{ .Email }}</strong>.</p>
-  <p style="margin: 0 0 24px; font-size: 1.5rem; font-weight: 700; letter-spacing: 0.25em;">{{ .Token }}</p>
-  <p style="margin: 0; font-size: 0.875rem; color: #666;">This code expires in 1 hour. If you didn't request it, you can ignore this email.</p>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Your sign-in code</title>
+  </head>
+  <body
+    style="
+      font-family:
+        system-ui,
+        -apple-system,
+        sans-serif;
+      line-height: 1.5;
+      color: #1a1a1a;
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 24px;
+    "
+  >
+    <h2 style="margin: 0 0 16px; font-size: 1.25rem">Your sign-in code</h2>
+    <p style="margin: 0 0 16px">
+      Use this code to sign in. It was sent to <strong>{{ .Email }}</strong>.
+    </p>
+    <p style="margin: 0 0 24px; font-size: 1.5rem; font-weight: 700; letter-spacing: 0.25em">
+      {{ .Token }}
+    </p>
+    <p style="margin: 0; font-size: 0.875rem; color: #666">
+      This code expires in 1 hour. If you didn't request it, you can ignore this email.
+    </p>
+  </body>
 </html>

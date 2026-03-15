@@ -101,17 +101,6 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
         return;
       }
 
-      const { getApiKey } = await import("@/app/job/search/utils/api-key");
-      const apiKey = getApiKey();
-
-      if (!apiKey) {
-        alert(
-          'Please set your OpenAI API key first. Use "Set API Key" in the bar at the top of the app.'
-        );
-        setIsStreaming(false);
-        return;
-      }
-
       // Embedding-based retrieval has been removed. The chat function will
       // rely on the full resume and JD content plus recent chat history.
       const retrievedResumeSections: string[] = [];
@@ -121,7 +110,6 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-openai-api-key": apiKey,
         },
         body: JSON.stringify({
           resumeData: chatResume,
@@ -224,22 +212,10 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
         return;
       }
 
-      const { getApiKey } = await import("@/app/job/search/utils/api-key");
-      const apiKey = getApiKey();
-
-      if (!apiKey) {
-        alert(
-          'Please set your OpenAI API key first. Use "Set API Key" in the bar at the top of the app.'
-        );
-        setIsStreaming(false);
-        return;
-      }
-
       const response = await fetch(sfn("cover-letter"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-openai-api-key": apiKey,
         },
         body: JSON.stringify({
           resumeData: chatResume,

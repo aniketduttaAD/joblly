@@ -10,8 +10,10 @@ import {
   ExternalLink,
   Briefcase,
   Loader2,
+  MessageCircle,
 } from "lucide-react";
 import { Button } from "@/app/job/search/components/ui/button";
+import { ChatBottomSheet } from "@/app/components/chat-bottom-sheet";
 import { Card, CardContent } from "@/app/job/search/components/ui/card";
 import { Input } from "@/app/job/search/components/ui/input";
 import {
@@ -95,6 +97,14 @@ export default function JobsExplorerPage() {
   const [savedModalOpen, setSavedModalOpen] = useState(false);
   const [addToTrackerLoadingId, setAddToTrackerLoadingId] = useState<string | null>(null);
   const [addToTrackerError, setAddToTrackerError] = useState<string | null>(null);
+  const [chatSheetOpen, setChatSheetOpen] = useState(false);
+  const [chatSheetJdText, setChatSheetJdText] = useState<string | null>(null);
+  const [chatSheetJobMetadata, setChatSheetJobMetadata] = useState<{
+    title?: string;
+    company?: string;
+    location?: string;
+    aboutCompany?: string;
+  } | null>(null);
 
   useEffect(() => {
     setSavedCount(getSavedJobs().length);
@@ -499,6 +509,16 @@ export default function JobsExplorerPage() {
                     isSaved={isJobSaved(job.id)}
                     onView={() => openJobDetail(job)}
                     onToggleSave={() => toggleSave(job)}
+                    onOpenChat={() => {
+                      setChatSheetJdText(job.job_description ?? null);
+                      setChatSheetJobMetadata({
+                        title: job.title,
+                        company: job.company,
+                        location: job.location,
+                        aboutCompany: job.about_company ?? undefined,
+                      });
+                      setChatSheetOpen(true);
+                    }}
                   />
                 ))}
               </div>
@@ -601,6 +621,23 @@ export default function JobsExplorerPage() {
               </div>
               <DialogFooter>
                 <Button
+                  variant="outline"
+                  onClick={() => {
+                    setJobModalOpen(false);
+                    setChatSheetJdText(selectedJob.job_description ?? null);
+                    setChatSheetJobMetadata({
+                      title: selectedJob.title,
+                      company: selectedJob.company,
+                      location: selectedJob.location,
+                      aboutCompany: selectedJob.about_company ?? undefined,
+                    });
+                    setChatSheetOpen(true);
+                  }}
+                >
+                  <MessageCircle className="mr-2 h-4 w-4" />
+                  Chat with AI
+                </Button>
+                <Button
                   variant={isJobSaved(selectedJob.id) ? "secondary" : "default"}
                   onClick={() => toggleSave(selectedJob)}
                 >
@@ -683,6 +720,17 @@ export default function JobsExplorerPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <ChatBottomSheet
+        open={chatSheetOpen}
+        onClose={() => {
+          setChatSheetOpen(false);
+          setChatSheetJdText(null);
+          setChatSheetJobMetadata(null);
+        }}
+        initialJdText={chatSheetJdText ?? undefined}
+        jobMetadata={chatSheetJobMetadata ?? undefined}
+      />
     </div>
   );
 }
@@ -692,11 +740,13 @@ function JobCard({
   isSaved,
   onView,
   onToggleSave,
+  onOpenChat,
 }: {
   job: JobListing;
   isSaved: boolean;
   onView: () => void;
   onToggleSave: () => void;
+  onOpenChat: () => void;
 }) {
   return (
     <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={onView}>
@@ -736,18 +786,32 @@ function JobCard({
         </p>
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>Posted {formatJobDate(job.posted_date)}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={(e) => {
-              e.stopPropagation();
-              onView();
-            }}
-          >
-            <Eye className="mr-1 h-3 w-3" />
-            View details
-          </Button>
+          <div className="flex flex-col gap-1 items-end">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={(e) => {
+                e.stopPropagation();
+                onView();
+              }}
+            >
+              <Eye className="mr-1 h-3 w-3" />
+              View details
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenChat();
+              }}
+            >
+              <MessageCircle className="mr-1 h-3 w-3" />
+              Chat with AI
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
