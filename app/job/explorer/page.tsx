@@ -7,10 +7,12 @@ import {
   RefreshCw,
   MapPin,
   Eye,
+  EyeOff,
   ExternalLink,
   Briefcase,
   Loader2,
   MessageCircle,
+  Key,
 } from "lucide-react";
 import { Button } from "@/app/job/search/components/ui/button";
 import { ChatBottomSheet } from "@/app/components/chat-bottom-sheet";
@@ -26,6 +28,9 @@ import {
 } from "@/app/job/search/components/ui/dialog";
 import {
   getJobsApiKey,
+  setJobsApiKey,
+  removeJobsApiKey,
+  validateJobsKey,
   getSavedJobs,
   saveJob,
   removeSavedJob,
@@ -106,9 +111,39 @@ export default function JobsExplorerPage() {
     aboutCompany?: string;
   } | null>(null);
 
+  const [jobsApiKeyInput, setJobsApiKeyInput] = useState("");
+  const [showJobsApiKey, setShowJobsApiKey] = useState(false);
+  const [jobsApiKeyError, setJobsApiKeyError] = useState("");
+  const [jobsSaveMessage, setJobsSaveMessage] = useState("");
+
+  useEffect(() => {
+    setJobsApiKeyInput(getJobsApiKey() || "");
+  }, []);
+
   useEffect(() => {
     setSavedCount(getSavedJobs().length);
   }, [jobModalOpen, savedModalOpen]);
+
+  const handleSaveJobsKey = () => {
+    const trimmed = jobsApiKeyInput.trim();
+    if (!trimmed) {
+      removeJobsApiKey();
+      setJobsApiKeyError("");
+      setJobsSaveMessage("Jobs API key removed.");
+      setTimeout(() => setJobsSaveMessage(""), 3000);
+      window.dispatchEvent(new Event("apiKeyUpdated"));
+      return;
+    }
+    if (!validateJobsKey(trimmed)) {
+      setJobsApiKeyError("Format: sk-live- followed by 40 characters");
+      return;
+    }
+    setJobsApiKey(trimmed);
+    setJobsApiKeyError("");
+    setJobsSaveMessage("Jobs API key saved.");
+    setTimeout(() => setJobsSaveMessage(""), 3000);
+    window.dispatchEvent(new Event("apiKeyUpdated"));
+  };
 
   useEffect(() => {
     if (!notification) return;
@@ -319,6 +354,76 @@ export default function JobsExplorerPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="container mx-auto px-4 py-6 max-w-6xl">
+        {/* Jobs API Key */}
+        <section className="rounded-xl border border-border bg-card p-6 shadow-sm mb-6">
+          <h2 className="text-lg font-semibold text-foreground mb-2 flex items-center gap-2">
+            <Key className="h-5 w-5" />
+            Jobs API Key
+          </h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Required to fetch job listings. Get a key at{" "}
+            <a
+              href="https://indianapi.in/jobs-api"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary underline"
+            >
+              indianapi.in/jobs-api
+            </a>
+          </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex-1 min-w-[200px] max-w-md relative">
+              <Input
+                type={showJobsApiKey ? "text" : "password"}
+                value={jobsApiKeyInput}
+                onChange={(e) => {
+                  setJobsApiKeyInput(e.target.value);
+                  setJobsApiKeyError("");
+                  setJobsSaveMessage("");
+                }}
+                placeholder="sk-live-..."
+                className={cn("pr-10", jobsApiKeyError && "border-destructive")}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-0 top-0 h-10 w-10"
+                onClick={() => setShowJobsApiKey(!showJobsApiKey)}
+              >
+                {showJobsApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </Button>
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="default" size="sm" onClick={handleSaveJobsKey}>
+                {jobsApiKeyInput.trim() ? "Save key" : "Remove key"}
+              </Button>
+              {getJobsApiKey() && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    removeJobsApiKey();
+                    setJobsApiKeyInput("");
+                    setJobsApiKeyError("");
+                    window.dispatchEvent(new Event("apiKeyUpdated"));
+                  }}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+          </div>
+          {jobsApiKeyError && <p className="text-sm text-destructive mt-2">{jobsApiKeyError}</p>}
+          {!jobsApiKeyError && jobsSaveMessage && (
+            <p className="text-sm text-green-600 mt-2">{jobsSaveMessage}</p>
+          )}
+          <p className="text-xs text-muted-foreground mt-2">
+            Format: sk-live- followed by 40 characters. Key is stored in this browser only.
+          </p>
+        </section>
+
         {/* Search */}
         <section className="rounded-xl border border-border bg-card p-6 shadow-sm mb-6">
           <h2 className="text-lg font-semibold text-foreground mb-4">

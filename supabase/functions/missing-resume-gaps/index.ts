@@ -3,19 +3,23 @@ import { handleCors, errorResponse } from "../_shared/cors.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
 function buildSystemPrompt(): string {
-  return `You write concise, professional cover letters using ONLY the provided resume data, job metadata, and job description.
+  return `You analyze what is missing in a candidate's resume for a specific job using ONLY the provided parsed resume data and job description.
 
 Rules:
-1. Never invent facts, tools, leadership experience, years of experience, or achievements.
-2. Never include placeholders, address blocks, dates, email lines, or phone numbers.
-3. Use the candidate name exactly as provided.
-4. If the role is more senior than the candidate's background, do not pretend otherwise. Write a credible letter that emphasizes honest strengths.
-5. Keep the letter to 3 or 4 short paragraphs.
-6. Start with "Dear Hiring Team,".
-7. End with "Best regards," followed by the exact candidate name.
-8. Do not output commentary, bullet points, or explanations. Output only the letter.
-9. Use plain, natural language. No hype, no filler, no fake enthusiasm.
-10. Focus on the most relevant overlap between resume and job description.`;
+1. Be strict, factual, and concise.
+2. Never invent skills, experience, or achievements.
+3. Call out missing tools, missing years of experience, and missing leadership evidence clearly.
+4. If the job is too senior for the resume, say that plainly.
+5. Output in exactly this format:
+Verdict: <one line>
+Missing or weak areas:
+- ...
+Evidence already present:
+- ...
+What to improve in the resume:
+- ...
+6. Keep it under 220 words.
+7. Do not write as the candidate. Write as an evaluator.`;
 }
 
 Deno.serve(async (req: Request) => {
@@ -38,29 +42,20 @@ Deno.serve(async (req: Request) => {
 
   const resumeData = body.resumeData as ResumeData | undefined;
   const jdData = body.jdData as { content?: string } | undefined;
-  const jobMetadata = body.jobMetadata as JobMetadata | undefined;
+  const jobMetadata = body.jobMetadata as { title?: string; company?: string } | undefined;
 
   if (!resumeData || !jdData?.content?.trim()) {
     return errorResponse("Resume and job description are required", 400);
   }
 
-  const candidateName = extractCandidateName(resumeData.name);
   const resumeContent = formatResumeContent(resumeData);
-  const jobSummary = formatJobMetadata(jobMetadata);
-  const jobDescription = jdData.content.trim().replace(/\s+/g, " ");
-
+  const jobContent = jdData.content.trim().replace(/\s+/g, " ");
   const userPrompt = [
-    `CANDIDATE NAME: ${candidateName}`,
-    jobSummary ? `JOB METADATA:\n${jobSummary}` : "",
+    jobMetadata?.title ? `ROLE TITLE: ${jobMetadata.title}` : "",
+    jobMetadata?.company ? `COMPANY: ${jobMetadata.company}` : "",
     `PARSED RESUME:\n${resumeContent}`,
-    `JOB DESCRIPTION:\n${jobDescription.slice(0, 6000)}`,
-    `TASK:
-Write a tailored cover letter for this application.
-- Keep it honest and grounded in the resume.
-- Mention the strongest relevant experience and technologies only if they are supported.
-- If the role is senior and the candidate is earlier-career, keep the tone ambitious but realistic.
-- Do not mention missing qualifications explicitly unless necessary.
-- Output only the final cover letter.`,
+    `JOB DESCRIPTION:\n${jobContent.slice(0, 6000)}`,
+    "TASK: Outline exactly what is missing or weak in the resume for this job, what evidence already exists, and what should be improved in the resume content.",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -82,16 +77,16 @@ Write a tailored cover letter for this application.
               { role: "system", content: buildSystemPrompt() },
               { role: "user", content: userPrompt },
             ],
-            temperature: 0.35,
+            temperature: 0.15,
             top_p: 0.9,
-            max_tokens: 700,
+            max_tokens: 420,
             stream: true,
           }),
         });
 
         if (!response.ok) {
           const errorText = await response.text().catch(() => "");
-          throw new Error(errorText || "Failed to generate cover letter");
+          throw new Error(errorText || "Failed to analyze resume gaps");
         }
         if (!response.body) throw new Error("No response stream from OpenAI");
 
@@ -138,13 +133,6 @@ Write a tailored cover letter for this application.
   });
 });
 
-type JobMetadata = {
-  title?: string;
-  company?: string;
-  location?: string;
-  aboutCompany?: string;
-};
-
 interface ResumeData {
   name: string;
   parsedContent: {
@@ -163,57 +151,32 @@ interface ResumeData {
 }
 
 function formatResumeContent(resume: ResumeData): string {
-  let content = `Candidate: ${resume.name}\n`;
   const pc = resume.parsedContent;
-  const summary = extractSummary(pc.rawText);
+  const lines = [`Candidate: ${resume.name}`];
 
-  if (summary) content += `Summary: ${summary}\n`;
-  if (pc.skills?.length) content += `Skills: ${pc.skills.slice(0, 20).join(", ")}\n`;
+  if (pc.skills?.length) lines.push(`Skills: ${pc.skills.join(", ")}`);
   if (pc.experience?.length) {
-    content += "Experience:\n";
-    for (const entry of pc.experience.slice(0, 4)) {
-      content += `- ${entry.role} at ${entry.company} (${entry.startDate} - ${entry.endDate || "Present"}): ${entry.description}\n`;
-    }
+    lines.push(
+      `Experience:\n${pc.experience
+        .slice(0, 4)
+        .map(
+          (entry) =>
+            `- ${entry.role} at ${entry.company} (${entry.startDate} - ${entry.endDate || "Present"}): ${entry.description}`
+        )
+        .join("\n")}`
+    );
   }
   if (pc.projects?.length) {
-    content += "Projects:\n";
-    for (const project of pc.projects.slice(0, 2)) {
-      content += `- ${project.name}: ${project.description}\n`;
-    }
+    lines.push(
+      `Projects:\n${pc.projects
+        .slice(0, 2)
+        .map((project) => `- ${project.name}: ${project.description}`)
+        .join("\n")}`
+    );
+  }
+  if (pc.rawText) {
+    lines.push(`Summary excerpt: ${pc.rawText.replace(/\s+/g, " ").slice(0, 350)}`);
   }
 
-  return content.trim();
-}
-
-function formatJobMetadata(jobMetadata?: JobMetadata): string {
-  if (!jobMetadata) return "";
-
-  return [
-    jobMetadata.title ? `Title: ${jobMetadata.title}` : "",
-    jobMetadata.company ? `Company: ${jobMetadata.company}` : "",
-    jobMetadata.location ? `Location: ${jobMetadata.location}` : "",
-    jobMetadata.aboutCompany ? `About company: ${jobMetadata.aboutCompany}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-function extractSummary(rawText?: string): string {
-  if (!rawText) return "";
-  const normalized = rawText.replace(/\s+/g, " ").trim();
-  const match = normalized.match(
-    /(?:professional summary|summary)\s+(.+?)(?:technical skills|work experience|experience|projects|education)/i
-  );
-  return (match?.[1] ?? normalized.slice(0, 280)).trim();
-}
-
-function extractCandidateName(name: string): string {
-  return name
-    .replace(/\.pdf$/i, "")
-    .replace(/\s*resume$/i, "")
-    .replace(
-      /\s*-\s*(software engineer|frontend engineer|backend engineer|full stack developer|developer|engineer).*$/i,
-      ""
-    )
-    .trim();
+  return lines.join("\n\n");
 }

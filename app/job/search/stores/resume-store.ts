@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import type { ParsedResume, Resume } from "@/app/job/search/types";
-import { db } from "@/app/job/search/lib/db";
 import { fetchWithAuth } from "@/lib/auth-client";
 import { sfn } from "@/lib/supabase-api";
 
@@ -30,17 +29,6 @@ interface ResumeStore {
 async function parseError(response: Response, fallback: string): Promise<Error> {
   const data = (await response.json().catch(() => ({}))) as { error?: string };
   return new Error(data.error || fallback);
-}
-
-async function deleteResumeArtifacts(id: string): Promise<void> {
-  const allChats = await db.chats.toArray();
-  const linkedChats = allChats.filter((chat) => chat.resumeId === id);
-
-  for (const chat of linkedChats) {
-    await db.messages.where("chatId").equals(chat.id).delete();
-    await db.jobDescriptions.where("chatId").equals(chat.id).delete();
-    await db.chats.delete(chat.id);
-  }
 }
 
 export const useResumeStore = create<ResumeStore>((set, get) => ({
@@ -140,7 +128,6 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
       throw await parseError(response, "Failed to delete resume");
     }
 
-    await deleteResumeArtifacts(id);
     set((state) => ({
       resumes: state.resumes.filter((resume) => resume.id !== id),
       lastLoadedAt: Date.now(),

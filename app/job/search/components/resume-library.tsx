@@ -40,6 +40,8 @@ function emptyStateMessage(compact: boolean): string {
     : "No resumes yet. Upload your first PDF resume to get started.";
 }
 
+const MAX_RESUMES = 5;
+
 type ResumeEditorState = {
   rawText: string;
   skills: string[];
@@ -986,7 +988,13 @@ export function ResumeLibrary({
     }
   };
 
+  const atResumeLimit = resumes.length >= MAX_RESUMES;
+
   const handleUpload = async () => {
+    if (atResumeLimit) {
+      setUploadError(`Maximum ${MAX_RESUMES} resumes. Remove one to add another.`);
+      return;
+    }
     if (!uploadFile) {
       setUploadError("Choose a PDF file to continue.");
       return;
@@ -1046,10 +1054,22 @@ export function ResumeLibrary({
           <h2 className={compact ? "text-lg font-semibold" : "text-2xl font-bold"}>{title}</h2>
           <p className="text-sm text-stone-500">{description}</p>
         </div>
-        <Button onClick={() => setIsUploadDialogOpen(true)} size={compact ? "sm" : "default"}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add Resume
-        </Button>
+        <div className="flex flex-col items-end gap-1">
+          <Button
+            onClick={() => !atResumeLimit && setIsUploadDialogOpen(true)}
+            size={compact ? "sm" : "default"}
+            disabled={atResumeLimit}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Add Resume
+          </Button>
+          {atResumeLimit && (
+            <p className="max-w-[220px] text-right text-xs text-amber-600">
+              You already have {MAX_RESUMES} resumes. Remove a few previous resumes to add a new
+              one.
+            </p>
+          )}
+        </div>
       </div>
 
       {isLoading ? (
@@ -1143,6 +1163,12 @@ export function ResumeLibrary({
           if (!open && (uploading || uploadParsing)) {
             return;
           }
+          if (open && atResumeLimit) {
+            setUploadError(
+              `You already have ${MAX_RESUMES} resumes. Remove a few previous resumes to add another.`
+            );
+            return;
+          }
           setIsUploadDialogOpen(open);
           if (!open) {
             resetUploadState();
@@ -1153,12 +1179,18 @@ export function ResumeLibrary({
           <div className="grid h-full min-h-0 gap-0 lg:grid-cols-[360px_minmax(0,1fr)]">
             <div className="border-b border-beige-300 bg-gradient-to-b from-white to-beige-100 p-6 lg:border-b-0 lg:border-r">
               <DialogHeader>
-                <DialogTitle>Upload Resume</DialogTitle>
+                <DialogTitle>Resume Manager</DialogTitle>
                 <DialogDescription>
                   Select a PDF, parse it automatically, review the extracted data, then upload the
-                  edited result.
+                  edited result. You can store up to {MAX_RESUMES} resumes here.
                 </DialogDescription>
               </DialogHeader>
+              {atResumeLimit ? (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                  You already have {MAX_RESUMES} resumes. Remove a few previous resumes to add a new
+                  one.
+                </div>
+              ) : null}
               <div className="mt-6 space-y-4">
                 <div>
                   <label className="text-sm font-medium text-stone-700">PDF File</label>

@@ -407,6 +407,9 @@ verify_jwt = false
 [functions.cover-letter]
 verify_jwt = false
 
+[functions.missing-resume-gaps]
+verify_jwt = false
+
 [functions.ats-resume]
 verify_jwt = false
 

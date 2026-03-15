@@ -42,53 +42,6 @@ export interface Education {
   graduationDate?: string;
 }
 
-export interface JobDescription {
-  id: string;
-  chatId: string;
-  content: string;
-  extracted: ExtractedJD;
-  createdAt: Date;
-}
-
-export interface ExtractedJD {
-  roleTitle: string;
-  requiredSkills: string[];
-  preferredSkills: string[];
-  responsibilities: string[];
-  company?: string;
-}
-
-export interface Chat {
-  id: string;
-  resumeId: string;
-  jdId: string;
-  title: string;
-  messages: Message[];
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface Message {
-  id: string;
-  chatId?: string;
-  role: "user" | "assistant";
-  content: string;
-  extraInstructions?: string;
-  timestamp: Date;
-  contextSummary?: ContextSummary;
-}
-
-export interface ContextSummary {
-  resumeSections: string[];
-  jdRequirements: string[];
-}
-
-export interface ChatCreationState {
-  selectedResumeId: string | null;
-  jdText: string;
-  isConfirmed: boolean;
-}
-
 export interface LLMResponse {
   content: string;
   tokensUsed?: number;

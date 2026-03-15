@@ -3,99 +3,72 @@ import { handleCors, errorResponse } from "../_shared/cors.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
 const MAX_TOKENS_PER_REQUEST = 15_000;
+const MONTH_INDEX: Record<string, number> = {
+  jan: 0,
+  feb: 1,
+  mar: 2,
+  apr: 3,
+  may: 4,
+  jun: 5,
+  jul: 6,
+  aug: 7,
+  sep: 8,
+  sept: 8,
+  oct: 9,
+  nov: 10,
+  dec: 11,
+};
+
+type QuestionMode = "fit" | "gaps" | "interview" | "skills" | "general";
+
+type QuestionProfile = {
+  mode: QuestionMode;
+  completionTokens: number;
+  historyMessageLimit: number;
+  includeFullJD: boolean;
+};
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-function buildPhase1Prompt(): string {
-  return `You are a job applicant writing a response to an interview question. Write AS YOURSELF, using ONLY information from your resume and the job description.
+function buildSystemPrompt(): string {
+  return `You are helping a candidate evaluate job fit and answer job-related questions using ONLY:
+- parsed resume data
+- job metadata
+- the job description
+- previous chat messages
 
-PHASE 1: EVIDENCE-FIRST APPROACH
+Non-negotiable rules:
+1. Never invent skills, achievements, years of experience, employers, education, locations, dates, or responsibilities.
+2. Never exaggerate fit. Use the exact years or months stated in the provided facts.
+3. Never imply the candidate has a skill unless it appears in the provided data.
+4. If evidence is missing or weak, say it is missing or unclear.
+5. Write in plain, professional language. No hype, no flattery, no placeholder text.
+6. Keep answers concise but useful.
+7. Never round 1.5 years up to 15 years. Preserve decimals exactly as provided.
+8. If a fact block says "Candidate experience: 1.5+ years", repeat "1.5+ years" exactly.
 
-CONSTRAINTS:
-1. Every claim must map to resume or JD evidence - no made-up information
-2. Use specific details: company names, projects, technologies, dates, numbers
-3. Write in first person ("I", "my", "me")
-4. Use past tense for experience: "I built X", "I worked on Y"
-5. Be direct and factual - state what you did
-6. Reference specific resume sections naturally
+For gap-analysis questions such as missing skills, fit, match, eligibility, strengths, weaknesses, or resume gaps:
+- Start with the main mismatch first.
+- Be candid about seniority gaps, domain gaps, and missing tools.
+- Separate "Strong matches" from "Gaps or concerns".
+- Mention what the candidate can still emphasize honestly.
+- If the role is clearly more senior than the resume, say "not a strong fit right now" or similar plain language.
+- Give a one-line verdict first.
+- Prefer factual bullets over persuasive language.
 
-WRITING STYLE:
-- Natural but professional
-- Mix sentence lengths: short (8-12 words), medium (15-20 words), occasional longer (22-28 words)
-- Use contractions inconsistently: "I've" sometimes, "I have" other times
-- Vary sentence starters: "At [Company], I...", "When I worked on...", "One project..."
-- Active voice: "I built" not "I was involved in building"
+For interview-style or general questions:
+- Answer in first person as the candidate.
+- Stay factual and grounded in the resume.
 
-AVOID:
-- Corporate buzzwords: "leveraged", "synergized", "empowered", "utilized"
-- Meta-commentary: "This demonstrates...", "I believe...", "This shows..."
-- AI overused phrases (will be fixed in Phase 3)`;
-}
+Avoid vague claims like:
+- "aligns perfectly"
+- "strong fit" unless directly supported
+- "adapting will not be an issue"
+- "I led" unless leadership evidence is explicit
 
-function buildPhase2Prompt(): string {
-  return `You are a job applicant writing a response to an interview question. Write AS YOURSELF, using ONLY information from your resume and the job description.
-
-PHASE 2: CONVERSATIONAL APPROACH
-
-CONSTRAINTS:
-1. Every claim must map to resume or JD evidence - no made-up information
-2. Write like you're speaking in an interview (conversational but professional)
-3. Use natural language patterns - vary from Phase 1's structure
-4. Be specific and concrete - avoid abstract concepts
-
-WRITING STYLE:
-- Conversational but professional - like explaining face-to-face
-- Write like talking to a colleague, not writing an essay
-- Use natural transitions: "Also", "Plus", "Another thing", or no transition
-- Include occasional fragments: "Pretty straightforward." "Worked well."
-- Mix verb forms: "I built" vs "I've built" vs "I was building"
-- Use dashes for natural pauses: "I did X - that was challenging"
-
-AVOID:
-- Corporate buzzwords
-- Meta-commentary
-- AI overused phrases (will be fixed in Phase 3)
-- Same structure as Phase 1`;
-}
-
-function buildPhase3Prompt(): string {
-  return `You are combining two responses and creating a final professional, human, conversational response for a job interview.
-
-PHASE 3: COMBINE AND REFINE
-
-Combine the best of Phase 1 and Phase 2, apply all constraints:
-
-1. EVIDENCE-FIRST: Every claim maps to resume/JD evidence
-2. SENTENCE RHYTHM: Mix short (8-12), medium (15-20), longer (22-28) word sentences
-3. VERB DISCIPLINE: Use "built", "led", "improved", "created", "developed". Avoid "leveraged", "spearheaded", "utilized"
-4. NO META-COMMENTARY: Remove "This demonstrates...", "I believe...", "This shows..."
-5. VERBOSITY CEILING: Stop when question is answered
-
-CRITICAL - REPLACE ALL AI PHRASES:
-❌ "I'm drawn to" → state interest directly
-❌ "aligning with" → "matches" or restructure
-❌ "excites me" → "I want to" or state the fact
-❌ "I look forward to" → remove or "I want to"
-❌ "pioneering work" → state what they do simply
-❌ "meaningful impact" → remove buzzword
-❌ "I am eager to" → "I want to"
-❌ "which aligns well with" → "which matches"
-❌ "I have hands-on experience" → "I've built" or "I worked on"
-❌ "Based on my experience" → start with the experience directly
-❌ "opportunity at" → "role at" or "position at"
-❌ "collaborating on" → "working on" or "building"
-
-NATURAL VARIATION:
-- Contractions inconsistently (like real speech)
-- Natural transitions: "Also", "Plus", "Another thing", or none
-- Professional casual phrases: "pretty straightforward", "a lot of", "got to work with"
-- End naturally when point is made
-
-GRAMMAR: Proper grammar, subject-verb agreement, correct tenses, clear pronouns.
-
-Your goal: Final response that sounds human and professional, not AI-generated.`;
+If the user asks for missing skills or resume gaps, do not sell the profile. Audit it honestly.`;
 }
 
 Deno.serve(async (req: Request) => {
@@ -133,16 +106,31 @@ Deno.serve(async (req: Request) => {
     return errorResponse("Question is required", 400);
   }
 
-  const resumeContent = formatResumeContent(
-    resumeData as ResumeData,
-    retrievedResumeSections as string[]
-  );
+  const normalizedResumeData = resumeData as ResumeData;
+  const normalizedJdData = jdData as JDData;
+  const questionProfile = analyzeQuestion(question);
+  const inferredRequirements = inferRequirementsFromJD(normalizedJdData.content ?? "");
+
+  const resumeContent = formatResumeContent(normalizedResumeData, {
+    question,
+    profile: questionProfile,
+    retrievedSections: retrievedResumeSections as string[] | undefined,
+    inferredRequirements,
+  });
   const jdContent =
     retrievedJDSections && Array.isArray(retrievedJDSections) && retrievedJDSections.length > 0
       ? `RELEVANT SECTIONS:\n\n${(retrievedJDSections as string[]).map((s, i) => `${i + 1}. ${s}`).join("\n\n")}`
-      : ((jdData as { content?: string }).content ?? "");
+      : formatJDContent(normalizedJdData, questionProfile, inferredRequirements);
 
-  const contextPrompt = `RESUME CONTENT:\n${resumeContent}\n\nJOB DESCRIPTION:\n${jdContent}\n\nUse ONLY the resume and job description above to answer questions.`;
+  const jobMetadata = formatJobMetadata(normalizedJdData);
+  const experienceSummary = summarizeExperience(normalizedResumeData);
+  const fitFacts = buildFitFacts(
+    normalizedResumeData,
+    normalizedJdData,
+    experienceSummary,
+    inferredRequirements
+  );
+  const contextPrompt = `JOB METADATA:\n${jobMetadata}\n\nNORMALIZED FACTS:\n${fitFacts}\n\nRESUME CONTENT:\n${resumeContent}\n\nJOB DESCRIPTION:\n${jdContent}\n\nEXPERIENCE SUMMARY:\n${experienceSummary}\n\nUse ONLY the evidence above. Be explicit about gaps, especially years-of-experience mismatches, missing tools, and missing leadership evidence. If the question asks about fit, answer with this format:\nVerdict: <plain conclusion>\nStrong matches:\n- ...\nGaps or concerns:\n- ...\nWhat to emphasize anyway:\n- ...`;
   const userPrompt = `QUESTION: ${question}${extraInstructions ? `\n\nEXTRA INSTRUCTIONS: ${extraInstructions}` : ""}`;
 
   const baseMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
@@ -150,7 +138,11 @@ Deno.serve(async (req: Request) => {
   ];
 
   if (Array.isArray(chatHistory)) {
-    for (const msg of chatHistory as Array<{ role: string; content: string }>) {
+    const trimmedHistory = trimChatHistory(
+      chatHistory as Array<{ role: string; content: string }>,
+      questionProfile
+    );
+    for (const msg of trimmedHistory) {
       if (msg.role === "user" || msg.role === "assistant") {
         baseMessages.push({ role: msg.role as "user" | "assistant", content: msg.content });
       }
@@ -159,7 +151,7 @@ Deno.serve(async (req: Request) => {
 
   baseMessages.push({ role: "user", content: userPrompt });
 
-  const allText = buildPhase1Prompt() + baseMessages.map((m) => m.content).join("\n");
+  const allText = buildSystemPrompt() + baseMessages.map((m) => m.content).join("\n");
   if (estimateTokens(allText) > MAX_TOKENS_PER_REQUEST) {
     return errorResponse("Request too large. Please shorten the resume or job description.", 429);
   }
@@ -168,63 +160,28 @@ Deno.serve(async (req: Request) => {
     async start(controller) {
       const encode = (s: string) => new TextEncoder().encode(s);
       try {
-        const p1Res = await fetch("https://api.openai.com/v1/chat/completions", {
+        const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({
-            model: "gpt-3.5-turbo",
-            messages: [{ role: "system", content: buildPhase1Prompt() }, ...baseMessages],
-            temperature: 0.8,
+            model: "gpt-4o-mini",
+            messages: [{ role: "system", content: buildSystemPrompt() }, ...baseMessages],
+            temperature: 0.25,
             top_p: 0.9,
-            frequency_penalty: 0.4,
-            presence_penalty: 0.3,
-            stream: false,
-          }),
-        });
-        const p1Data = await p1Res.json();
-        const phase1Content = p1Data.choices?.[0]?.message?.content ?? "";
-        if (!phase1Content.trim()) throw new Error("Failed to generate phase 1 response");
-
-        const p2Res = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({
-            model: "gpt-3.5-turbo",
-            messages: [{ role: "system", content: buildPhase2Prompt() }, ...baseMessages],
-            temperature: 0.85,
-            top_p: 0.9,
-            frequency_penalty: 0.5,
-            presence_penalty: 0.4,
-            stream: false,
-          }),
-        });
-        const p2Data = await p2Res.json();
-        const phase2Content = p2Data.choices?.[0]?.message?.content ?? "";
-        if (!phase2Content.trim()) throw new Error("Failed to generate phase 2 response");
-
-        const p3Res = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({
-            model: "gpt-3.5-turbo",
-            messages: [
-              { role: "system", content: buildPhase3Prompt() },
-              {
-                role: "user",
-                content: `PHASE 1 RESPONSE:\n\n${phase1Content}\n\nPHASE 2 RESPONSE:\n\n${phase2Content}\n\nCombine these responses, apply all constraints, and create a final human, professional, conversational response.`,
-              },
-            ],
-            temperature: 1.2,
-            top_p: 0.8,
-            frequency_penalty: 0.9,
-            presence_penalty: 0.8,
+            frequency_penalty: 0.2,
+            presence_penalty: 0,
+            max_tokens: questionProfile.completionTokens,
             stream: true,
           }),
         });
 
-        if (!p3Res.body) throw new Error("No stream body from Phase 3");
+        if (!aiRes.ok) {
+          const errorText = await aiRes.text().catch(() => "");
+          throw new Error(errorText || "Failed to generate chat response");
+        }
+        if (!aiRes.body) throw new Error("No response stream from OpenAI");
 
-        const reader = p3Res.body.getReader();
+        const reader = aiRes.body.getReader();
         const decoder = new TextDecoder();
 
         while (true) {
@@ -278,28 +235,64 @@ interface ResumeData {
     }>;
     projects?: Array<{ name: string; description: string }>;
     education?: Array<{ degree: string; field?: string; institution: string }>;
+    rawText?: string;
   };
 }
 
-function formatResumeContent(resume: ResumeData, retrievedSections?: string[]): string {
+interface JDData {
+  content?: string;
+  extracted?: {
+    roleTitle?: string;
+    company?: string;
+    requiredSkills?: string[];
+    preferredSkills?: string[];
+    responsibilities?: string[];
+  };
+}
+
+function formatResumeContent(
+  resume: ResumeData,
+  options: {
+    question: string;
+    profile: QuestionProfile;
+    retrievedSections?: string[];
+    inferredRequirements: InferredRequirements;
+  }
+): string {
+  const { retrievedSections, inferredRequirements, question } = options;
+
   if (retrievedSections && retrievedSections.length > 0) {
     return `RESUME: ${resume.name}\n\nRELEVANT SECTIONS:\n\n${retrievedSections.map((s, i) => `${i + 1}. ${s}`).join("\n\n")}`;
   }
 
   let content = `RESUME: ${resume.name}\n\n`;
   const pc = resume.parsedContent;
+  const summary = extractSummary(pc.rawText);
+  const matchedSkills = selectRelevantSkills(pc.skills ?? [], inferredRequirements, question);
+  const relevantExperience = selectRelevantExperience(
+    pc.experience ?? [],
+    inferredRequirements,
+    question
+  );
+  const relevantProjects = selectRelevantProjects(
+    pc.projects ?? [],
+    inferredRequirements,
+    question
+  );
 
-  if (pc.skills?.length) content += `SKILLS: ${pc.skills.join(", ")}\n\n`;
-  if (pc.experience?.length) {
-    content += `EXPERIENCE:\n`;
-    for (const e of pc.experience) {
+  if (summary) content += `SUMMARY: ${summary}\n\n`;
+  if (matchedSkills.length) content += `MOST RELEVANT SKILLS: ${matchedSkills.join(", ")}\n\n`;
+  else if (pc.skills?.length) content += `SKILLS: ${pc.skills.slice(0, 20).join(", ")}\n\n`;
+  if (relevantExperience.length) {
+    content += `MOST RELEVANT EXPERIENCE:\n`;
+    for (const e of relevantExperience) {
       content += `- ${e.role} at ${e.company} (${e.startDate} - ${e.endDate || "Present"})\n  ${e.description}\n`;
     }
     content += "\n";
   }
-  if (pc.projects?.length) {
-    content += `PROJECTS:\n`;
-    for (const p of pc.projects) content += `- ${p.name}: ${p.description}\n`;
+  if (relevantProjects.length) {
+    content += `RELEVANT PROJECTS:\n`;
+    for (const p of relevantProjects) content += `- ${p.name}: ${p.description}\n`;
     content += "\n";
   }
   if (pc.education?.length) {
@@ -309,4 +302,398 @@ function formatResumeContent(resume: ResumeData, retrievedSections?: string[]): 
     content += "\n";
   }
   return content;
+}
+
+function formatJobMetadata(jdData: JDData): string {
+  const extracted = jdData.extracted ?? {};
+  const lines = [
+    `Role title: ${extracted.roleTitle || "Unknown"}`,
+    `Company: ${extracted.company || "Unknown"}`,
+  ];
+
+  if (extracted.requiredSkills?.length) {
+    lines.push(`Required skills: ${extracted.requiredSkills.join(", ")}`);
+  }
+  if (extracted.preferredSkills?.length) {
+    lines.push(`Preferred skills: ${extracted.preferredSkills.join(", ")}`);
+  }
+  if (extracted.responsibilities?.length) {
+    lines.push(`Responsibilities: ${extracted.responsibilities.join(" | ")}`);
+  }
+
+  return lines.join("\n");
+}
+
+function formatJDContent(
+  jdData: JDData,
+  profile: QuestionProfile,
+  inferredRequirements: InferredRequirements
+): string {
+  const fullText = (jdData.content ?? "").replace(/\s+/g, " ").trim();
+  if (!fullText) return "";
+
+  const sections = [
+    inferredRequirements.roleTitle ? `ROLE TITLE: ${inferredRequirements.roleTitle}` : "",
+    inferredRequirements.requiredYears
+      ? `REQUIRED EXPERIENCE: ${inferredRequirements.requiredYears}`
+      : "",
+    inferredRequirements.requiredSkills.length
+      ? `KEY REQUIRED SKILLS: ${inferredRequirements.requiredSkills.join(", ")}`
+      : "",
+    inferredRequirements.testingRequirements.length
+      ? `TESTING REQUIREMENTS: ${inferredRequirements.testingRequirements.join(", ")}`
+      : "",
+    inferredRequirements.leadershipSignals.length
+      ? `LEADERSHIP EXPECTATIONS: ${inferredRequirements.leadershipSignals.join(", ")}`
+      : "",
+    inferredRequirements.responsibilityHighlights.length
+      ? `RESPONSIBILITIES: ${inferredRequirements.responsibilityHighlights.join(" | ")}`
+      : "",
+  ].filter(Boolean);
+
+  if (profile.includeFullJD) {
+    sections.push(`FULL JD (TRUNCATED): ${fullText.slice(0, 4000)}`);
+  }
+
+  return sections.join("\n\n");
+}
+
+function extractSummary(rawText?: string): string {
+  if (!rawText) return "";
+  const normalized = rawText.replace(/\s+/g, " ").trim();
+  const summaryMatch =
+    normalized.match(
+      /summary\s+(.+?)(?:technical skills|core competencies|work experience|experience|projects|education)/i
+    ) ??
+    normalized.match(
+      /professional summary\s+(.+?)(?:technical skills|core competencies|work experience|experience|projects|education)/i
+    );
+
+  if (summaryMatch?.[1]) {
+    return summaryMatch[1].trim();
+  }
+
+  return normalized.slice(0, 320).trim();
+}
+
+function summarizeExperience(resume: ResumeData): string {
+  const explicitYears = extractExplicitYears(resume.parsedContent.rawText);
+  const monthEstimate = estimateExperienceMonths(resume.parsedContent.experience ?? []);
+
+  if (explicitYears) {
+    return `Candidate experience: ${explicitYears} years. This value is exact from the resume summary.`;
+  }
+  if (monthEstimate > 0) {
+    const years = (monthEstimate / 12).toFixed(1);
+    return `Candidate experience estimate from dated roles: ${years} years (${monthEstimate} months).`;
+  }
+  return "Total years of experience are not clearly stated in the provided resume data.";
+}
+
+function extractExplicitYears(rawText?: string): string {
+  if (!rawText) return "";
+  const match = rawText.match(/(\d+(?:\.\d+)?)\+?\s*years?\s+of\s+experience/i);
+  if (!match?.[1]) return "";
+  const hasPlus = /\+\s*years?\s+of\s+experience/i.test(match[0]);
+  return `${match[1]}${hasPlus ? "+" : ""}`;
+}
+
+function estimateExperienceMonths(entries: Array<{ startDate: string; endDate?: string }>): number {
+  let totalMonths = 0;
+
+  for (const entry of entries) {
+    const start = parseMonthYear(entry.startDate);
+    const end = parseMonthYear(entry.endDate || "") ?? new Date();
+    if (!start || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+      continue;
+    }
+
+    const months =
+      (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
+    totalMonths += Math.max(0, months);
+  }
+
+  return totalMonths;
+}
+
+function parseMonthYear(value: string): Date | null {
+  const trimmed = value.trim();
+  if (!trimmed || /present|current/i.test(trimmed)) {
+    return null;
+  }
+
+  const match = trimmed.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (!match) return null;
+
+  const month = MONTH_INDEX[match[1].toLowerCase()];
+  const year = Number(match[2]);
+  if (month === undefined || Number.isNaN(year)) return null;
+
+  return new Date(year, month, 1);
+}
+
+function buildFitFacts(
+  resume: ResumeData,
+  jdData: JDData,
+  experienceSummary: string,
+  inferredRequirements: InferredRequirements
+): string {
+  const skills = new Set((resume.parsedContent.skills ?? []).map((skill) => skill.toLowerCase()));
+  const roleTitle = jdData.extracted?.roleTitle || extractRoleTitleFromJd(jdData.content);
+  const normalizedRoleTitle = roleTitle.toLowerCase();
+  const hasReact = skills.has("react");
+  const hasNext = skills.has("next.js");
+  const hasJs = skills.has("javascript");
+  const hasJest = skills.has("jest");
+  const hasRTL =
+    skills.has("react testing library") || skills.has("testing library") || skills.has("enzyme");
+  const hasLeadershipEvidence = hasLeadershipKeywords(resume);
+
+  return [
+    `Target role title: ${roleTitle || "Unknown"}`,
+    `Role seniority cue: ${normalizedRoleTitle.includes("senior") ? "senior" : "not clearly senior"}`,
+    inferredRequirements.requiredYears
+      ? `JD required experience: ${inferredRequirements.requiredYears}`
+      : "JD required experience: not clearly stated",
+    experienceSummary,
+    `Candidate has React: ${hasReact ? "yes" : "no"}`,
+    `Candidate has Next.js: ${hasNext ? "yes" : "no"}`,
+    `Candidate has JavaScript: ${hasJs ? "yes" : "no"}`,
+    `Candidate has Jest: ${hasJest ? "yes" : "no"}`,
+    `Candidate has React Testing Library or Enzyme: ${hasRTL ? "yes" : "no"}`,
+    `Candidate has explicit leadership evidence for large frontend ownership: ${hasLeadershipEvidence ? "yes" : "no"}`,
+    inferredRequirements.requiredSkills.length
+      ? `JD required skills: ${inferredRequirements.requiredSkills.join(", ")}`
+      : "",
+    `Important instruction: do not change numeric values from the facts above.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function hasLeadershipKeywords(resume: ResumeData): boolean {
+  const text = [
+    resume.parsedContent.rawText ?? "",
+    ...(resume.parsedContent.experience ?? []).map((entry) => entry.description),
+    ...(resume.parsedContent.projects ?? []).map((project) => project.description),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return /\b(lead|led|leading|mentor|mentored|managed|owner|owned|ownership|architected)\b/.test(
+    text
+  );
+}
+
+function extractRoleTitleFromJd(jdText?: string): string {
+  if (!jdText) return "";
+  const lines = jdText
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines[0] || "";
+}
+
+type InferredRequirements = {
+  roleTitle: string;
+  requiredYears: string;
+  requiredSkills: string[];
+  testingRequirements: string[];
+  leadershipSignals: string[];
+  responsibilityHighlights: string[];
+  keywordSet: Set<string>;
+};
+
+function analyzeQuestion(question: string): QuestionProfile {
+  const normalized = question.toLowerCase();
+
+  if (/(good fit|fit for|am i fit|match|eligible|right for this role)/.test(normalized)) {
+    return { mode: "fit", completionTokens: 320, historyMessageLimit: 4, includeFullJD: false };
+  }
+  if (/(missing skills|gaps|what am i missing|missing data)/.test(normalized)) {
+    return { mode: "gaps", completionTokens: 360, historyMessageLimit: 4, includeFullJD: false };
+  }
+  if (
+    /(interview|answer|tell me about yourself|introduce yourself|why should|why do you)/.test(
+      normalized
+    )
+  ) {
+    return {
+      mode: "interview",
+      completionTokens: 650,
+      historyMessageLimit: 6,
+      includeFullJD: true,
+    };
+  }
+  if (/(skills|tech stack|technologies|tools)/.test(normalized)) {
+    return { mode: "skills", completionTokens: 380, historyMessageLimit: 4, includeFullJD: false };
+  }
+
+  return { mode: "general", completionTokens: 500, historyMessageLimit: 5, includeFullJD: true };
+}
+
+function inferRequirementsFromJD(jdText: string): InferredRequirements {
+  const normalized = jdText.replace(/\s+/g, " ").trim();
+  const roleTitle = extractRoleTitleFromJd(jdText);
+  const yearsMatch =
+    normalized.match(/(\d+\+?\s+years?)\s+of\s+experience/i) ||
+    normalized.match(/(\d+\+?\s+years?)/i);
+
+  const catalog = [
+    "React",
+    "Next.js",
+    "JavaScript",
+    "TypeScript",
+    "Jest",
+    "React Testing Library",
+    "Enzyme",
+    "GitLab",
+    "AWS",
+    "CI/CD",
+    "API design",
+    "accessibility",
+    "performance",
+    "scalability",
+    "Elixir",
+    "Phoenix",
+    "Postgres",
+    "English",
+  ];
+
+  const requiredSkills = catalog.filter((skill) =>
+    new RegExp(`\\b${escapeRegExp(skill).replace(/\\ /g, "\\s+")}\\b`, "i").test(normalized)
+  );
+
+  const testingRequirements = requiredSkills.filter((skill) =>
+    /jest|testing library|enzyme/i.test(skill)
+  );
+
+  const leadershipSignals = [
+    "lead the development of major projects",
+    "maintain large front-end applications",
+    "mentor other engineers",
+    "work independently",
+  ].filter((signal) => normalized.includes(signal.replace(/-/g, " ")));
+
+  const responsibilityHighlights = [
+    "building tools, APIs and integrations",
+    "provide meaningful feedback on code reviews",
+    "mentor and provide guidance to other engineers",
+    "implement interfaces with quality",
+    "participate in product work",
+  ].filter((item) => normalized.includes(item));
+
+  return {
+    roleTitle,
+    requiredYears: yearsMatch?.[1] ?? "",
+    requiredSkills,
+    testingRequirements,
+    leadershipSignals,
+    responsibilityHighlights,
+    keywordSet: new Set(requiredSkills.map((skill) => skill.toLowerCase())),
+  };
+}
+
+function selectRelevantSkills(
+  skills: string[],
+  inferredRequirements: InferredRequirements,
+  question: string
+): string[] {
+  const q = question.toLowerCase();
+  const selected = skills.filter((skill) => {
+    const lower = skill.toLowerCase();
+    return (
+      inferredRequirements.keywordSet.has(lower) ||
+      q.includes(lower) ||
+      (/front|web|ui/.test(q) && /react|next|javascript|typescript|css|html/.test(lower)) ||
+      (/test/.test(q) && /jest|testing|postman/.test(lower))
+    );
+  });
+
+  return dedupeStrings(selected).slice(0, 16);
+}
+
+function selectRelevantExperience(
+  entries: Array<{
+    role: string;
+    company: string;
+    startDate: string;
+    endDate?: string;
+    description: string;
+  }>,
+  inferredRequirements: InferredRequirements,
+  question: string
+) {
+  const q = question.toLowerCase();
+  return [...entries]
+    .map((entry) => ({
+      entry,
+      score: scoreText(
+        `${entry.role} ${entry.company} ${entry.description}`,
+        inferredRequirements,
+        q
+      ),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((item) => item.entry);
+}
+
+function selectRelevantProjects(
+  projects: Array<{ name: string; description: string }>,
+  inferredRequirements: InferredRequirements,
+  question: string
+) {
+  const q = question.toLowerCase();
+  return [...projects]
+    .map((project) => ({
+      project,
+      score: scoreText(`${project.name} ${project.description}`, inferredRequirements, q),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2)
+    .map((item) => item.project);
+}
+
+function scoreText(text: string, inferredRequirements: InferredRequirements, question: string) {
+  const lower = text.toLowerCase();
+  let score = 0;
+
+  for (const keyword of inferredRequirements.keywordSet) {
+    if (lower.includes(keyword)) score += 3;
+  }
+  if (/react|next\.js|frontend|web/.test(lower)) score += 2;
+  if (/lead|owner|mentor|architect/.test(lower)) score += 2;
+
+  for (const token of question.split(/\W+/).filter(Boolean)) {
+    if (token.length > 3 && lower.includes(token)) score += 1;
+  }
+
+  return score;
+}
+
+function trimChatHistory(
+  history: Array<{ role: string; content: string }>,
+  profile: QuestionProfile
+) {
+  const filtered = history.filter(
+    (message) => message.role === "user" || message.role === "assistant"
+  );
+  const recent = filtered.slice(-profile.historyMessageLimit * 2);
+
+  return recent.map((message) => ({
+    ...message,
+    content:
+      message.content.length > 1200
+        ? `${message.content.slice(0, 1200)}\n[truncated]`
+        : message.content,
+  }));
+}
+
+function dedupeStrings(values: string[]) {
+  return [...new Set(values)];
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

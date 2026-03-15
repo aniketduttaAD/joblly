@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -198,11 +199,19 @@ export function AppAuthProvider({ children }: { children: ReactNode }) {
     setAuthUserId(null);
   }, []);
 
+  const lastRevalidateRef = useRef<number>(0);
+  const REVALIDATE_THROTTLE_MS = 60_000;
+
   const revalidateSession = useCallback(async (): Promise<boolean> => {
     if (!authRequired) {
       setAuthenticated(true);
       return true;
     }
+    const now = Date.now();
+    if (now - lastRevalidateRef.current < REVALIDATE_THROTTLE_MS) {
+      return authenticated;
+    }
+    lastRevalidateRef.current = now;
 
     const nextUser = await getCurrentUser();
     if (!nextUser) {

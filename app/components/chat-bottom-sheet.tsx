@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Briefcase, Download, Loader2, Send, X } from "lucide-react";
+import { Briefcase, Loader2, Send, X } from "lucide-react";
 import { Button } from "@/app/job/search/components/ui/button";
 import { Textarea } from "@/app/job/search/components/ui/textarea";
 import { Input } from "@/app/job/search/components/ui/input";
@@ -25,7 +25,7 @@ type SessionMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
-  kind: "chat" | "cover-letter" | "ats-resume";
+  kind: "chat" | "coverLetter" | "gaps";
 };
 
 type ChatSession = {
@@ -35,11 +35,6 @@ type ChatSession = {
   jobMetadata: JobMetadata | null;
   resumeData: Resume;
   jobDescription: string;
-};
-
-type DownloadState = {
-  coverLetter: string | null;
-  atsResume: string | null;
 };
 
 interface ChatBottomSheetProps {
@@ -82,20 +77,6 @@ async function readStreamedContent(response: Response, onChunk: (content: string
   return fullContent;
 }
 
-function downloadTextFile(
-  content: string,
-  fileName: string,
-  mimeType = "text/plain;charset=utf-8"
-) {
-  const blob = new Blob([content], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
 function extractCandidateName(resumeName: string) {
   return resumeName
     .replace(/\.pdf$/i, "")
@@ -116,96 +97,6 @@ function buildAiResumePayload(resume: Resume) {
   };
 }
 
-function escapePdfText(value: string) {
-  return value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
-}
-
-function downloadPdfFromText(content: string, fileName: string) {
-  const lines = content
-    .replace(/\r/g, "")
-    .split("\n")
-    .flatMap((line) => {
-      if (!line.trim()) return [""];
-      const chunks: string[] = [];
-      let remaining = line;
-      while (remaining.length > 92) {
-        chunks.push(remaining.slice(0, 92));
-        remaining = remaining.slice(92);
-      }
-      chunks.push(remaining);
-      return chunks;
-    });
-
-  const linesPerPage = 44;
-  const pages: string[][] = [];
-  for (let i = 0; i < lines.length; i += linesPerPage) {
-    pages.push(lines.slice(i, i + linesPerPage));
-  }
-
-  let pdf = "%PDF-1.4\n";
-  const offsets: number[] = [];
-  const objects: string[] = [];
-  const pageIds: number[] = [];
-
-  objects.push("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n");
-  pageIds.push(0);
-  objects.push("");
-  objects.push("3 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n");
-
-  let nextObjectId = 4;
-  const contentIds: number[] = [];
-  for (const pageLines of pages) {
-    const pageId = nextObjectId++;
-    const contentId = nextObjectId++;
-    pageIds.push(pageId);
-    contentIds.push(contentId);
-
-    const contentStream = [
-      "BT",
-      "/F1 11 Tf",
-      "50 792 Td",
-      "14 TL",
-      ...pageLines.map((line, index) =>
-        `${index === 0 ? "" : "T* "}(${escapePdfText(line)}) Tj`.trim()
-      ),
-      "ET",
-    ].join("\n");
-
-    objects.push(
-      `${pageId} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentId} 0 R >> endobj\n`
-    );
-    objects.push(
-      `${contentId} 0 obj << /Length ${contentStream.length} >> stream\n${contentStream}\nendstream\nendobj\n`
-    );
-  }
-
-  objects[1] = `2 0 obj << /Type /Pages /Count ${pages.length} /Kids [${pageIds
-    .slice(1)
-    .map((id) => `${id} 0 R`)
-    .join(" ")}] >> endobj\n`;
-
-  for (const object of objects) {
-    offsets.push(pdf.length);
-    pdf += object;
-  }
-
-  const xrefOffset = pdf.length;
-  pdf += `xref\n0 ${objects.length + 1}\n`;
-  pdf += "0000000000 65535 f \n";
-  for (const offset of offsets) {
-    pdf += `${String(offset).padStart(10, "0")} 00000 n \n`;
-  }
-  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
-
-  const blob = new Blob([pdf], { type: "application/pdf" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
 export function ChatBottomSheet({
   open,
   onClose,
@@ -217,18 +108,12 @@ export function ChatBottomSheet({
   const [selectedResumeId, setSelectedResumeId] = useState<string>("");
   const [jobDescriptionInput, setJobDescriptionInput] = useState(initialJdText ?? "");
   const [session, setSession] = useState<ChatSession | null>(null);
-  const [activeTab, setActiveTab] = useState<"chat" | "downloads">("chat");
   const [chatInput, setChatInput] = useState("");
+  const [pendingUserMessage, setPendingUserMessage] = useState("");
   const [streamingContent, setStreamingContent] = useState("");
-  const [downloads, setDownloads] = useState<DownloadState>({
-    coverLetter: null,
-    atsResume: null,
-  });
   const [sheetError, setSheetError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [isResponding, setIsResponding] = useState(false);
-  const [isGeneratingCoverLetter, setIsGeneratingCoverLetter] = useState(false);
-  const [isGeneratingAtsResume, setIsGeneratingAtsResume] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const { resumes, loadResumes, isLoading: resumesLoading } = useResumeStore();
@@ -237,15 +122,12 @@ export function ChatBottomSheet({
     setSelectedResumeId("");
     setJobDescriptionInput(initialJdText ?? "");
     setSession(null);
-    setActiveTab("chat");
     setChatInput("");
+    setPendingUserMessage("");
     setStreamingContent("");
-    setDownloads({ coverLetter: null, atsResume: null });
     setSheetError("");
     setIsCreating(false);
     setIsResponding(false);
-    setIsGeneratingCoverLetter(false);
-    setIsGeneratingAtsResume(false);
   }, [initialJdText]);
 
   useEffect(() => {
@@ -289,7 +171,7 @@ export function ChatBottomSheet({
 
   const canStartChat = Boolean(selectedResume && jobDescriptionInput.trim());
   const queryLimitReached = (session?.queryCount ?? 0) >= MAX_QUERIES;
-  const isBusy = isCreating || isResponding || isGeneratingCoverLetter || isGeneratingAtsResume;
+  const isBusy = isCreating || isResponding;
 
   const handleClose = () => {
     resetSession();
@@ -349,7 +231,6 @@ export function ChatBottomSheet({
         resumeData: selectedResume,
         jobDescription: jobDescriptionInput.trim(),
       });
-      setActiveTab("chat");
     } catch (error) {
       setSheetError(error instanceof Error ? error.message : "Failed to create chat session.");
     } finally {
@@ -357,12 +238,14 @@ export function ChatBottomSheet({
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!session || !chatInput.trim() || queryLimitReached) return;
+  const handleSendMessage = async (prefilledQuestion?: string) => {
+    if (!session || queryLimitReached) return;
 
-    const question = chatInput.trim();
+    const question = (prefilledQuestion ?? chatInput).trim();
+    if (!question) return;
     setSheetError("");
     setChatInput("");
+    setPendingUserMessage(question);
     setIsResponding(true);
     setStreamingContent("");
 
@@ -410,21 +293,28 @@ export function ChatBottomSheet({
       appendQueryResult("chat", question, errorMessage);
       setSheetError(errorMessage);
     } finally {
+      setPendingUserMessage("");
       setIsResponding(false);
       setStreamingContent("");
     }
   };
 
-  const handleGenerateCoverLetter = async () => {
+  const handleDedicatedAction = async (
+    kind: Exclude<SessionMessage["kind"], "chat">,
+    userContent: string,
+    endpoint: "cover-letter" | "missing-resume-gaps"
+  ) => {
     if (!session || queryLimitReached) return;
+
     setSheetError("");
-    setIsGeneratingCoverLetter(true);
+    setChatInput("");
+    setPendingUserMessage(userContent);
+    setIsResponding(true);
     setStreamingContent("");
 
     try {
       const jdText = await ensureJobDescription();
-      const promptLabel = `Generate a cover letter for ${session.jobMetadata?.title || "this role"}.`;
-      const response = await fetch(sfn("cover-letter"), {
+      const response = await fetch(sfn(endpoint), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -433,90 +323,30 @@ export function ChatBottomSheet({
           resumeData: buildAiResumePayload(session.resumeData),
           jdData: {
             content: jdText,
-            extracted: {
-              roleTitle: session.jobMetadata?.title || "",
-              company: session.jobMetadata?.company || undefined,
-              requiredSkills: [],
-              preferredSkills: [],
-              responsibilities: [],
-            },
           },
-          jobMetadata: session.jobMetadata,
+          jobMetadata: session.jobMetadata ?? undefined,
         }),
       });
 
       if (!response.ok) {
         const errorData = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(errorData.error || "Failed to generate the cover letter.");
+        throw new Error(errorData.error || "Failed to generate a response.");
       }
 
       const fullContent = await readStreamedContent(response, setStreamingContent);
-      const finalContent =
-        fullContent.trim() || "Sorry, I couldn't generate the cover letter. Please try again.";
-
-      setDownloads((current) => ({ ...current, coverLetter: finalContent }));
-      appendQueryResult("cover-letter", promptLabel, finalContent);
+      appendQueryResult(
+        kind,
+        userContent,
+        fullContent.trim() || "Sorry, I couldn't generate a response. Please try again."
+      );
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : "Failed to generate the cover letter.";
-      appendQueryResult("cover-letter", "Generate cover letter", errorMessage);
+        error instanceof Error ? error.message : "Sorry, I encountered an error. Please try again.";
+      appendQueryResult(kind, userContent, errorMessage);
       setSheetError(errorMessage);
     } finally {
-      setIsGeneratingCoverLetter(false);
-      setStreamingContent("");
-    }
-  };
-
-  const handleGenerateAtsResume = async () => {
-    if (!session || queryLimitReached) return;
-    setSheetError("");
-    setIsGeneratingAtsResume(true);
-    setStreamingContent("");
-
-    try {
-      const jdText = await ensureJobDescription();
-      const response = await fetch(sfn("ats-resume"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          resumeData: buildAiResumePayload(session.resumeData),
-          jdData: {
-            content: jdText,
-            extracted: {
-              roleTitle: session.jobMetadata?.title || "",
-              company: session.jobMetadata?.company || undefined,
-              requiredSkills: [],
-              preferredSkills: [],
-              responsibilities: [],
-            },
-          },
-          jobMetadata: session.jobMetadata,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(errorData.error || "Failed to generate the ATS resume.");
-      }
-
-      const fullContent = await readStreamedContent(response, setStreamingContent);
-      const finalContent =
-        fullContent.trim() ||
-        "Unable to generate resume improvements. Please upload a valid resume.";
-
-      setDownloads((current) => ({ ...current, atsResume: finalContent }));
-      appendQueryResult("ats-resume", "Generate ATS verified resume", finalContent);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "Unable to generate resume improvements. Please upload a valid resume.";
-      appendQueryResult("ats-resume", "Generate ATS verified resume", errorMessage);
-      setSheetError(errorMessage);
-    } finally {
-      setIsGeneratingAtsResume(false);
+      setPendingUserMessage("");
+      setIsResponding(false);
       setStreamingContent("");
     }
   };
@@ -663,163 +493,53 @@ export function ChatBottomSheet({
           </div>
         ) : (
           <>
-            <div className="grid shrink-0 grid-cols-2 gap-2 border-b border-beige-300 px-4 py-3">
-              <button
-                type="button"
-                onClick={() => setActiveTab("chat")}
-                className={`rounded-lg px-3 py-2 text-sm font-medium ${
-                  activeTab === "chat"
-                    ? "bg-orange-brand text-white"
-                    : "border border-beige-300 bg-white text-stone-700"
-                }`}
-              >
-                Chat
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("downloads")}
-                className={`rounded-lg px-3 py-2 text-sm font-medium ${
-                  activeTab === "downloads"
-                    ? "bg-orange-brand text-white"
-                    : "border border-beige-300 bg-white text-stone-700"
-                }`}
-              >
-                Downloads
-              </button>
-            </div>
-
             <div className="flex-1 overflow-y-auto p-4">
-              {activeTab === "chat" ? (
-                <div className="space-y-3">
-                  {session.messages.length === 0 && !streamingContent ? (
-                    <div className="rounded-2xl border border-dashed border-beige-300 bg-white p-4 text-sm text-stone-500">
-                      Ask about resume fit, likely interview questions, missing skills, or how the
-                      role matches your background.
-                    </div>
-                  ) : null}
+              <div className="space-y-3">
+                {session.messages.length === 0 && !pendingUserMessage && !streamingContent ? (
+                  <div className="rounded-2xl border border-dashed border-beige-300 bg-white p-4 text-sm text-stone-500">
+                    Ask about resume fit, likely interview questions, missing skills, or how the
+                    role matches your background.
+                  </div>
+                ) : null}
 
-                  {session.messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`rounded-2xl p-3 text-sm ${
-                        message.role === "user"
-                          ? "ml-8 bg-orange-brand text-white"
-                          : "mr-8 border border-beige-300 bg-white text-stone-700"
-                      }`}
-                    >
-                      <div className="mb-1 text-[11px] uppercase tracking-[0.12em] opacity-70">
-                        {message.role === "user" ? "You" : message.kind.replace("-", " ")}
-                      </div>
-                      <div className="whitespace-pre-wrap leading-relaxed">{message.content}</div>
+                {session.messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`rounded-2xl p-3 text-sm ${
+                      message.role === "user"
+                        ? "ml-8 bg-orange-brand text-white"
+                        : "mr-8 border border-beige-300 bg-white text-stone-700"
+                    }`}
+                  >
+                    <div className="mb-1 text-[11px] uppercase tracking-[0.12em] opacity-70">
+                      {message.role === "user" ? "You" : "AI"}
                     </div>
-                  ))}
+                    <div className="whitespace-pre-wrap leading-relaxed">{message.content}</div>
+                  </div>
+                ))}
 
-                  {streamingContent ? (
-                    <div className="mr-8 rounded-2xl border border-beige-300 bg-white p-3 text-sm text-stone-700">
-                      <div className="mb-1 text-[11px] uppercase tracking-[0.12em] text-stone-500">
-                        AI
-                      </div>
-                      <div className="whitespace-pre-wrap leading-relaxed">{streamingContent}</div>
+                {pendingUserMessage ? (
+                  <div className="ml-8 rounded-2xl bg-orange-brand p-3 text-sm text-white">
+                    <div className="mb-1 text-[11px] uppercase tracking-[0.12em] opacity-70">
+                      You
                     </div>
-                  ) : null}
+                    <div className="whitespace-pre-wrap leading-relaxed">{pendingUserMessage}</div>
+                  </div>
+                ) : null}
 
-                  <div ref={messagesEndRef} />
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-beige-300 bg-white p-4">
-                    <div className="text-sm font-medium text-stone-800">Downloads</div>
-                    <div className="mt-1 text-xs text-stone-500">
-                      Cover letter and ATS resume generations each count as one query.
+                {isResponding ? (
+                  <div className="mr-8 rounded-2xl border border-beige-300 bg-white p-3 text-sm text-stone-700">
+                    <div className="mb-1 text-[11px] uppercase tracking-[0.12em] text-stone-500">
+                      AI
+                    </div>
+                    <div className="whitespace-pre-wrap leading-relaxed">
+                      {streamingContent || "Generating response..."}
                     </div>
                   </div>
+                ) : null}
 
-                  <div className="grid gap-3">
-                    <div className="rounded-2xl border border-beige-300 bg-white p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="font-medium text-stone-800">Generate Cover Letter</div>
-                          <div className="text-xs text-stone-500">
-                            Uses your parsed resume and the full JD.
-                          </div>
-                        </div>
-                        <Button
-                          onClick={handleGenerateCoverLetter}
-                          disabled={queryLimitReached || isBusy}
-                          size="sm"
-                        >
-                          {isGeneratingCoverLetter ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            "Generate"
-                          )}
-                        </Button>
-                      </div>
-                      {downloads.coverLetter ? (
-                        <div className="mt-3 space-y-3">
-                          <div className="max-h-40 overflow-y-auto rounded-xl border border-beige-300 bg-beige-50 p-3 text-sm text-stone-700 whitespace-pre-wrap">
-                            {downloads.coverLetter}
-                          </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              downloadTextFile(downloads.coverLetter || "", "cover-letter.txt")
-                            }
-                          >
-                            <Download className="mr-2 h-4 w-4" />
-                            Download
-                          </Button>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div className="rounded-2xl border border-beige-300 bg-white p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="font-medium text-stone-800">
-                            Generate ATS Verified Resume
-                          </div>
-                          <div className="text-xs text-stone-500">
-                            Keeps the same resume structure and improves keyword coverage.
-                          </div>
-                        </div>
-                        <Button
-                          onClick={handleGenerateAtsResume}
-                          disabled={queryLimitReached || isBusy}
-                          size="sm"
-                        >
-                          {isGeneratingAtsResume ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            "Generate"
-                          )}
-                        </Button>
-                      </div>
-                      {downloads.atsResume ? (
-                        <div className="mt-3 space-y-3">
-                          <div className="max-h-40 overflow-y-auto rounded-xl border border-beige-300 bg-beige-50 p-3 text-sm text-stone-700 whitespace-pre-wrap">
-                            {downloads.atsResume}
-                          </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              downloadPdfFromText(
-                                downloads.atsResume || "",
-                                "ats-optimized-resume.pdf"
-                              )
-                            }
-                          >
-                            <Download className="mr-2 h-4 w-4" />
-                            Download
-                          </Button>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              )}
+                <div ref={messagesEndRef} />
+              </div>
             </div>
 
             <div className="shrink-0 border-t border-beige-300 bg-beige-50/95 p-4">
@@ -827,8 +547,38 @@ export function ChatBottomSheet({
                 <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                   Chat limit reached. Start a new chat to continue.
                 </div>
-              ) : activeTab === "chat" ? (
+              ) : (
                 <div className="space-y-2">
+                  <div className="flex flex-wrap gap-2 pb-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handleDedicatedAction(
+                          "gaps",
+                          "Outline exactly what is missing in my resume based on this JD.",
+                          "missing-resume-gaps"
+                        )
+                      }
+                      disabled={isBusy}
+                      className="rounded-full border border-beige-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-beige-100 disabled:opacity-50"
+                    >
+                      What is missing in my resume?
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void handleDedicatedAction(
+                          "coverLetter",
+                          "Generate a cover letter for me for this role.",
+                          "cover-letter"
+                        )
+                      }
+                      disabled={isBusy}
+                      className="rounded-full border border-beige-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-beige-100 disabled:opacity-50"
+                    >
+                      Generate cover letter
+                    </button>
+                  </div>
                   <Input
                     value={chatInput}
                     onChange={(event) => setChatInput(event.target.value)}
@@ -846,12 +596,15 @@ export function ChatBottomSheet({
                       Query {session.queryCount + 1} of {MAX_QUERIES}
                     </div>
                     <Button
-                      onClick={handleSendMessage}
+                      onClick={() => void handleSendMessage()}
                       disabled={!chatInput.trim() || isBusy}
                       size="sm"
                     >
                       {isResponding ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Generating...
+                        </>
                       ) : (
                         <>
                           <Send className="mr-2 h-4 w-4" />
@@ -860,10 +613,6 @@ export function ChatBottomSheet({
                       )}
                     </Button>
                   </div>
-                </div>
-              ) : (
-                <div className="text-xs text-stone-500">
-                  Download actions also use the shared 10-query session limit.
                 </div>
               )}
               {sheetError ? <p className="mt-2 text-sm text-red-600">{sheetError}</p> : null}
