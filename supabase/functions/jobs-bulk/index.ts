@@ -15,10 +15,20 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  if (req.method !== "POST") return errorResponse("Method not allowed", 405);
-
   const identity = await getUserFromRequest(req);
   if (!identity) return errorResponse("Unauthorized", 401);
+
+  if (req.method === "GET") {
+    const { jobs } = await readJobs(identity.userId);
+    const exportedAt = new Date().toISOString();
+    return jsonResponse({
+      exportedAt,
+      count: jobs.length,
+      jobs,
+    });
+  }
+
+  if (req.method !== "POST") return errorResponse("Method not allowed", 405);
 
   let body: { jobs?: unknown[] };
   try {

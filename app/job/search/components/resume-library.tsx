@@ -25,6 +25,8 @@ import {
   DialogTitle,
 } from "@/app/job/search/components/ui/dialog";
 import type { ParsedResume, Resume } from "@/app/job/search/types";
+import { extractTextFromPdf } from "@/app/job/search/utils/pdf-text";
+import { parseResumeTextEnhanced } from "@/app/job/search/utils/enhanced-resume-parser";
 
 function formatBytes(value?: number): string {
   if (!value || value <= 0) return "Unknown size";
@@ -147,33 +149,6 @@ function ParsedResumeEditor({
   );
 }
 
-async function parseResumeFile(
-  file: File
-): Promise<{ content: string; parsedContent: ParsedResume }> {
-  const formData = new FormData();
-  formData.append("file", file);
-
-  const response = await fetch(sfn("resume-parse"), {
-    method: "POST",
-    body: formData,
-  });
-
-  const data = (await response.json().catch(() => ({}))) as {
-    content?: string;
-    parsedContent?: ParsedResume;
-    error?: string;
-  };
-
-  if (!response.ok || typeof data.content !== "string" || !data.parsedContent) {
-    throw new Error(data.error || "Failed to parse resume.");
-  }
-
-  return {
-    content: data.content,
-    parsedContent: data.parsedContent,
-  };
-}
-
 export function ResumeLibrary({
   compact = false,
   title = "Resume Manager",
@@ -205,9 +180,9 @@ export function ResumeLibrary({
     setUploadName("");
     setUploadFile(null);
     setUploadError("");
-    setUploading(false);
-    setUploadParsing(false);
-    setUploadParsed(null);
+      setUploading(false);
+      setUploadParsing(false);
+      setUploadParsed(null);
   };
 
   useEffect(() => {
@@ -310,10 +285,15 @@ export function ResumeLibrary({
 
     setUploadParsing(true);
     try {
-      const parsed = await parseResumeFile(file);
-      setUploadParsed(parsedResumeToEditorState(parsed.parsedContent, parsed.content));
+      const extractedText = await extractTextFromPdf(file);
+
+      const parsedContent = parseResumeTextEnhanced(extractedText);
+
+      setUploadParsed(parsedResumeToEditorState(parsedContent, extractedText));
     } catch (error) {
-      setUploadError(error instanceof Error ? error.message : "Failed to parse resume.");
+      setUploadError(
+        error instanceof Error ? error.message : "Failed to parse resume locally."
+      );
     } finally {
       setUploadParsing(false);
     }
@@ -326,7 +306,7 @@ export function ResumeLibrary({
     }
 
     if (!uploadParsed) {
-      setUploadError("Wait for parsing to finish before uploading.");
+      setUploadError("Please wait for parsing to finish before uploading.");
       return;
     }
 
@@ -501,6 +481,10 @@ export function ResumeLibrary({
       <Dialog
         open={isUploadDialogOpen}
         onOpenChange={(open) => {
+          // Prevent closing the modal while parsing or uploading.
+          if (!open && (uploading || uploadParsing)) {
+            return;
+          }
           setIsUploadDialogOpen(open);
           if (!open) {
             resetUploadState();
@@ -524,11 +508,17 @@ export function ResumeLibrary({
                     value={uploadName}
                     onChange={(event) => setUploadName(event.target.value)}
                     placeholder="e.g., Software Engineer"
+                    disabled={uploading || uploadParsing}
                   />
                 </div>
                 <div>
                   <label className="text-sm font-medium text-stone-700">PDF File</label>
-                  <Input type="file" accept=".pdf,application/pdf" onChange={handleFileChange} />
+                  <Input
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    onChange={handleFileChange}
+                    disabled={uploading || uploadParsing}
+                  />
                 </div>
                 {uploadFile ? (
                   <div className="rounded-2xl border border-beige-300 bg-white p-4 text-sm text-stone-600 shadow-sm">
@@ -571,7 +561,12 @@ export function ResumeLibrary({
                 </div>
                 {uploadError ? <p className="text-sm text-red-600">{uploadError}</p> : null}
                 {uploadFile || uploadParsed || uploadName ? (
-                  <Button variant="ghost" onClick={resetUploadState} className="w-full">
+                  <Button
+                    variant="ghost"
+                    onClick={resetUploadState}
+                    className="w-full"
+                    disabled={uploading || uploadParsing}
+                  >
                     Clear
                   </Button>
                 ) : null}
@@ -579,11 +574,27 @@ export function ResumeLibrary({
             </div>
 
             <div className="flex min-h-0 flex-col bg-white">
-              <div className="border-b border-beige-300 px-6 py-4">
-                <div className="text-sm font-medium text-stone-800">Parsed Content Editor</div>
-                <div className="text-sm text-stone-500">
-                  Adjust the parsed text and JSON before saving this resume.
+              <div className="border-b border-beige-300 px-6 py-4 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-stone-800">Parsed Content Editor</div>
+                  <div className="text-sm text-stone-500">
+                    Adjust the parsed text and JSON before saving this resume.
+                  </div>
                 </div>
+                {uploadParsed ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={uploadParsing}
+                    onClick={() => {
+                      const next = parseResumeTextEnhanced(uploadParsed.rawText);
+                      setUploadParsed(parsedResumeToEditorState(next, uploadParsed.rawText));
+                    }}
+                  >
+                    Re-parse from raw text
+                  </Button>
+                ) : null}
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 scrollbar-thin">
                 {uploadParsed ? (
@@ -598,13 +609,13 @@ export function ResumeLibrary({
                 <Button
                   variant="outline"
                   onClick={() => setIsUploadDialogOpen(false)}
-                  disabled={uploading}
+                  disabled={uploading || uploadParsing}
                 >
                   Cancel
                 </Button>
                 <Button
                   onClick={handleUpload}
-                  disabled={!uploadFile || !uploadParsed || !uploadParsedPreview || uploading}
+                  disabled={!uploadFile || !uploadParsed || uploading || uploadParsing}
                 >
                   {uploading ? (
                     <>
@@ -626,7 +637,14 @@ export function ResumeLibrary({
 
       <Dialog
         open={previewResume != null}
-        onOpenChange={(open) => (!open ? setPreviewResumeId(null) : null)}
+        onOpenChange={(open) => {
+          if (!open && (previewFileLoading || verifyingId || deletingId)) {
+            return;
+          }
+          if (!open) {
+            setPreviewResumeId(null);
+          }
+        }}
       >
         <DialogContent className="max-h-[88vh] max-w-7xl overflow-hidden border-beige-300 bg-beige-50 p-0">
           <div className="grid h-full gap-0 xl:grid-cols-[minmax(0,1.15fr)_520px]">

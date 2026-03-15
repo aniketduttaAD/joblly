@@ -231,22 +231,24 @@ export async function searchJobsByTitleCompany(
   const trimmed = q.trim();
   if (!trimmed) return { jobs: [], total: 0 };
 
+  const search = trimmed.replace(/[':]/g, " ").replace(/\s+/g, " ").trim();
+
   const supabase = createAdminClient();
   let query = supabase
     .from("jobs")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("owner_id", ownerId)
-    .or(`title.ilike.%${trimmed}%,company.ilike.%${trimmed}%`)
+    .or(`title.fts.${search},company.fts.${search}`)
     .order("applied_at", { ascending: false });
 
   if (status) {
     query = query.eq("status", status);
   }
 
-  const { data, error } = await query;
+  const { data, error, count } = await query;
   if (error) throw error;
   const jobs = (data ?? []).map(rowToJobRecord);
-  return { jobs, total: jobs.length };
+  return { jobs, total: count ?? jobs.length };
 }
 
 function rowToResume(row: Record<string, unknown>): Resume {

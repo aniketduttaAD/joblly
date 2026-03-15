@@ -9,7 +9,6 @@ export interface Resume {
   previewUrl?: string;
   sourceFileName?: string;
   fileSize?: number;
-  embeddings?: Embedding[];
 }
 
 export interface ParsedResume {
@@ -48,7 +47,6 @@ export interface JobDescription {
   chatId: string;
   content: string;
   extracted: ExtractedJD;
-  embeddings?: Embedding[];
   createdAt: Date;
 }
 
@@ -83,16 +81,6 @@ export interface Message {
 export interface ContextSummary {
   resumeSections: string[];
   jdRequirements: string[];
-}
-
-export interface Embedding {
-  id: string;
-  entityId: string;
-  entityType: "resume" | "jd";
-  section: string;
-  text: string;
-  vector: number[];
-  createdAt: Date;
 }
 
 export interface ChatCreationState {

@@ -482,8 +482,21 @@ export default function HomePage() {
       });
       const data = await authedRes.json().catch(() => ({}));
       if (authedRes.ok) {
-        void fetchJobs(1);
-        void fetchStats();
+        const created = data as JobRecord;
+        setJobs((prev) => [created, ...prev]);
+        setTotalJobsCount((prev) => prev + 1);
+        setStats((prev) =>
+          prev
+            ? {
+                ...prev,
+                total: prev.total + 1,
+                statusCounts: {
+                  ...prev.statusCounts,
+                  [created.status]: (prev.statusCounts[created.status] ?? 0) + 1,
+                },
+              }
+            : prev
+        );
         setParseModalOpen(false);
         setParsePaste("");
         setParseResult(null);
@@ -505,42 +518,35 @@ export default function HomePage() {
     }
   };
 
-  const handleExportJSON = () => {
+  const fetchAllJobsForExport = async (): Promise<JobRecord[] | null> => {
+    try {
+      const res = await appFetch(sfn("jobs-bulk"));
+      const data = (await res.json().catch(() => ({}))) as {
+        jobs?: JobRecord[];
+        count?: number;
+        error?: string;
+      };
+      if (!res.ok || !Array.isArray(data.jobs)) {
+        const message = data.error || "Failed to fetch jobs for export";
+        alert(message);
+        return null;
+      }
+      return data.jobs;
+    } catch {
+      alert("Failed to fetch jobs for export");
+      return null;
+    }
+  };
+
+  const handleExportJSON = async () => {
     const exportedAt = new Date().toISOString();
+    const allJobs = await fetchAllJobsForExport();
+    if (!allJobs) return;
+
     const payload = {
       exportedAt,
-      count: jobs.length,
-      jobs: jobs.map((job) => ({
-        id: job.id,
-        title: job.title,
-        company: job.company,
-        company_publisher: job.companyPublisher ?? null,
-        location: job.location,
-        salary_min: job.salaryMin ?? null,
-        salary_max: job.salaryMax ?? null,
-        salary_currency: job.salaryCurrency ?? null,
-        salary_period: job.salaryPeriod ?? "yearly",
-        tech_stack: job.techStack,
-        tech_stack_normalized: job.techStackNormalized ?? null,
-        role: job.role,
-        experience: job.experience,
-        job_type: job.jobType ?? null,
-        availability: job.availability ?? null,
-        product: job.product ?? null,
-        seniority: job.seniority ?? null,
-        collaboration_tools: job.collaborationTools ?? [],
-        status: job.status,
-        applied_at: job.appliedAt,
-        posted_at: job.postedAt ?? null,
-        applicants_count: job.applicantsCount ?? null,
-        education: job.education ?? null,
-        source: job.source ?? null,
-        jd_raw: job.jdRaw ?? null,
-        notes: job.notes ?? null,
-        created_at: job.createdAt,
-        updated_at: job.updatedAt,
-        salary_estimated: job.salaryEstimated ?? false,
-      })),
+      count: allJobs.length,
+      jobs: allJobs,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json",
@@ -563,7 +569,10 @@ export default function HomePage() {
     return s;
   };
 
-  const handleExportCSV = () => {
+  const handleExportCSV = async () => {
+    const allJobs = await fetchAllJobsForExport();
+    if (!allJobs) return;
+
     const header = [
       "title",
       "company",
@@ -578,7 +587,7 @@ export default function HomePage() {
     ];
     const lines = [
       header.join(","),
-      ...jobs.map((job) =>
+      ...allJobs.map((job) =>
         [
           job.title,
           job.company,

@@ -222,7 +222,12 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
-# Uncomment to customize email template
+# Use OTP (6-digit code) instead of magic link for email sign-in
+[auth.email.template.magic_link]
+subject = "Your sign-in code"
+content_path = "./supabase/templates/magic_link.html"
+
+# Uncomment to customize other email templates
 # [auth.email.template.invite]
 # subject = "You have been invited"
 # content_path = "./supabase/templates/invite.html"
@@ -382,3 +387,58 @@ s3_region = "env(S3_REGION)"
 s3_access_key = "env(S3_ACCESS_KEY)"
 # Configures AWS_SECRET_ACCESS_KEY for S3 bucket
 s3_secret_key = "env(S3_SECRET_KEY)"
+
+# ─── Edge Functions JWT config ────────────────────────────────────────────────
+# Disable automatic JWT verification for all app-specific functions.
+# These functions perform their own auth using service role and/or custom logic.
+
+[functions.auth-me]
+verify_jwt = false
+
+[functions.auth-status]
+verify_jwt = false
+
+[functions.auth-signout]
+verify_jwt = false
+
+[functions.chat]
+verify_jwt = false
+
+[functions.cover-letter]
+verify_jwt = false
+
+[functions.jd-extract]
+verify_jwt = false
+
+[functions.resume-file]
+verify_jwt = false
+
+[functions.resume-by-id]
+verify_jwt = false
+
+[functions.resumes]
+verify_jwt = false
+
+[functions.jobs]
+verify_jwt = false
+
+[functions.jobs-by-id]
+verify_jwt = false
+
+[functions.jobs-bulk]
+verify_jwt = false
+
+[functions.jobs-external]
+verify_jwt = false
+
+[functions.jobs-parse]
+verify_jwt = false
+
+[functions.jobs-search]
+verify_jwt = false
+
+[functions.jobs-stats]
+verify_jwt = false
+
+[functions.telegram-webhook]
+verify_jwt = false

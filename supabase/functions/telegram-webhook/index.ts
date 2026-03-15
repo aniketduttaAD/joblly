@@ -1,6 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { errorResponse } from "../_shared/cors.ts";
-import { createAdminClient } from "../_shared/auth.ts";
 import {
   readJobs,
   addJob,
@@ -48,6 +47,12 @@ const VALID_STATUSES: JobStatus[] = [
 
 const pendingAddByChat = new Map<number, number>();
 const pendingSearchByChat = new Map<number, number>();
+
+function isEmail(text: string): boolean {
+  const trimmed = text.trim();
+  // Simple email pattern good enough for chat input
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+}
 
 function isPendingAdd(chatId: number): boolean {
   const ts = pendingAddByChat.get(chatId);
@@ -97,16 +102,10 @@ function getTelegramReloginMessage(linkedUser: TelegramChatLink | null): string 
   return `🔐 Your Telegram session for <b>${label}</b> has expired or is invalid. Send <code>/login ${linkedUser.email}</code> to receive a new 6-digit code.`;
 }
 
-async function sendSupabaseOtp(email: string): Promise<void> {
-  const supabase = createAdminClient();
-  const { error } = await supabase.auth.admin.generateLink({
-    type: "magiclink",
-    email,
-  });
-  if (error) throw new Error(error.message);
-}
-
 async function sendOtpEmail(email: string): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) throw new Error("Email is required.");
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
@@ -117,7 +116,7 @@ async function sendOtpEmail(email: string): Promise<void> {
       apikey: serviceRoleKey,
       Authorization: `Bearer ${serviceRoleKey}`,
     },
-    body: JSON.stringify({ email, create_user: true }),
+    body: JSON.stringify({ email: normalizedEmail, create_user: true }),
   });
 
   if (!res.ok) {
@@ -172,6 +171,7 @@ async function ensureTelegramAuthenticated(
 ): Promise<TelegramChatLink | null> {
   const trimmed = text.trim();
   const parsed = parseCommand(trimmed);
+  const pendingLogin = await getTelegramLoginChallenge(chatId);
 
   if (parsed?.command === "logout" || parsed?.command === "lock") {
     await clearTelegramChatSession(chatId);
@@ -182,6 +182,29 @@ async function ensureTelegramAuthenticated(
       `🔒 Session cleared. ${getTelegramReloginMessage(linkedUser)}`,
       { parse_mode: "HTML" }
     );
+    return null;
+  }
+
+  if (!parsed && !pendingLogin && isEmail(trimmed)) {
+    const email = trimmed.toLowerCase();
+    try {
+      await sendOtpEmail(email);
+      await createTelegramLoginChallenge({
+        chatId,
+        email,
+        userId: "",
+        phrase: null,
+        expiresAt: new Date(Date.now() + PENDING_OTP_TTL_MS).toISOString(),
+      });
+      await sendTelegramMessage(
+        chatId,
+        `📧 Code sent to <b>${email}</b>. Reply with the 6-digit code from your email.`,
+        { parse_mode: "HTML" }
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to send email code.";
+      await sendTelegramMessage(chatId, `❌ ${message}`);
+    }
     return null;
   }
 
@@ -213,7 +236,6 @@ async function ensureTelegramAuthenticated(
     return null;
   }
 
-  const pendingLogin = await getTelegramLoginChallenge(chatId);
   if (pendingLogin && isOtpCode(trimmed) && !parsed) {
     try {
       const userInfo = await verifyOtpToken(pendingLogin.email, trimmed);

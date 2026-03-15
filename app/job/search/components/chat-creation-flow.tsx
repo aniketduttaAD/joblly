@@ -73,14 +73,6 @@ export function ChatCreationFlow() {
       const jdStore = useJDStore.getState();
       await jdStore.updateJD(jdId, { chatId });
 
-      try {
-        const jd = await jdStore.getJD(jdId);
-        if (jd) {
-          const { generateJDEmbeddings } = await import("@/app/job/search/utils/embeddings");
-          await generateJDEmbeddings(jd);
-        }
-      } catch (error) {}
-
       router.push(`/job/search/chat/${chatId}`);
       resetChatCreation();
     } catch (error) {

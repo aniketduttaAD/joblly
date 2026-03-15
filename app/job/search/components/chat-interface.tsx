@@ -112,24 +112,10 @@ export function ChatInterface({ chatId }: ChatInterfaceProps) {
         return;
       }
 
-      let retrievedResumeSections: string[] = [];
-      let retrievedJDSections: string[] = [];
-
-      try {
-        const { generateQueryEmbedding, searchEmbeddings } =
-          await import("@/app/job/search/utils/embeddings");
-
-        const queryEmbedding = await generateQueryEmbedding(userInput);
-
-        const resumeEmbeddings = await searchEmbeddings(queryEmbedding, chatResume.id, "resume", 5);
-        retrievedResumeSections = resumeEmbeddings.map((e) => e.text);
-
-        const jdEmbeddings = await searchEmbeddings(queryEmbedding, jdData.id, "jd", 5);
-        retrievedJDSections = jdEmbeddings.map((e) => e.text);
-      } catch (ragError) {
-        retrievedResumeSections = [];
-        retrievedJDSections = [];
-      }
+      // Embedding-based retrieval has been removed. The chat function will
+      // rely on the full resume and JD content plus recent chat history.
+      const retrievedResumeSections: string[] = [];
+      const retrievedJDSections: string[] = [];
 
       const response = await fetch(sfn("chat"), {
         method: "POST",

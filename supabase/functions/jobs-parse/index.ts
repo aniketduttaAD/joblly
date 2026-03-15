@@ -45,7 +45,12 @@ Deno.serve(async (req: Request) => {
   try {
     const result = await withDeadline(parseJobDescription(jdText, apiKey), 50_000);
     const jobRecord = parseResultToJobRecord(result, jdText);
-    return jsonResponse({ result, jobRecord });
+    return jsonResponse({
+      parsed: result,
+      record: jobRecord,
+      result,
+      jobRecord,
+    });
   } catch (err) {
     if (err instanceof ParseError) {
       return errorResponse(err.message, 400);

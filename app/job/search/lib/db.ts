@@ -1,12 +1,11 @@
 import Dexie, { Table } from "dexie";
-import type { Resume, Chat, JobDescription, Message, Embedding } from "@/app/job/search/types";
+import type { Resume, Chat, JobDescription, Message } from "@/app/job/search/types";
 
 export class JobifierDatabase extends Dexie {
   resumes!: Table<Resume, string>;
   chats!: Table<Chat, string>;
   jobDescriptions!: Table<JobDescription, string>;
   messages!: Table<Message, string>;
-  embeddings!: Table<Embedding, string>;
 
   constructor() {
     super("JobifierDatabase");
@@ -15,7 +14,6 @@ export class JobifierDatabase extends Dexie {
       chats: "id, resumeId, jdId, title, createdAt, updatedAt",
       jobDescriptions: "id, chatId, createdAt",
       messages: "id, chatId, timestamp",
-      embeddings: "id, entityId, entityType, section",
     });
   }
 }

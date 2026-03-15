@@ -190,25 +190,8 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
       lastLoadedAt: Date.now(),
     }));
 
-    try {
-      const { generateResumeEmbeddings } = await import("@/app/job/search/utils/embeddings");
-      await generateResumeEmbeddings({ ...current, isVerified: true });
-    } catch (error) {
-      await fetchWithAuth(`/api/resumes/${id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ isVerified: false }),
-      }).catch(() => {});
-      set((state) => ({
-        resumes: state.resumes.map((resume) =>
-          resume.id === id ? { ...resume, isVerified: false, updatedAt: new Date() } : resume
-        ),
-        lastLoadedAt: Date.now(),
-      }));
-      throw error;
-    }
+    // Embedding generation is no longer required; verification now only
+    // updates the resume metadata without additional background processing.
   },
 
   reparseResume: async (id) => {
@@ -220,14 +203,6 @@ export const useResumeStore = create<ResumeStore>((set, get) => ({
     const { parseResumeTextEnhanced } =
       await import("@/app/job/search/utils/enhanced-resume-parser");
     const parsedContent = parseResumeTextEnhanced(current.content);
-
-    const allEmbeddings = await db.embeddings.toArray();
-    const oldEmbeddings = allEmbeddings.filter(
-      (embedding) => embedding.entityId === id && embedding.entityType === "resume"
-    );
-    for (const embedding of oldEmbeddings) {
-      await db.embeddings.delete(embedding.id);
-    }
 
     const response = await fetchWithAuth(sfn("resume-by-id", { id }), {
       method: "PATCH",

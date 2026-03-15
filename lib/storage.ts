@@ -435,12 +435,14 @@ export async function searchJobsByTitleCompany(
   const trimmed = q.trim();
   if (!trimmed) return { jobs: [], total: 0 };
 
+  const search = trimmed.replace(/[':]/g, " ").replace(/\s+/g, " ").trim();
+
   const supabase = createSupabaseClient();
   let query = supabase
     .from("jobs")
     .select("*", { count: "exact" })
     .eq("owner_id", ownerId)
-    .ilike("title", `%${trimmed}%`)
+    .or(`title.fts.${search},company.fts.${search}`)
     .order("applied_at", { ascending: false });
 
   if (status) {
