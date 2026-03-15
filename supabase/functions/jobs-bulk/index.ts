@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 import { getUserFromRequest } from "../_shared/auth.ts";
-import { readJobs, addJob } from "../_shared/db.ts";
+import { readJobsForDuplicateCheck, addJob } from "../_shared/db.ts";
 import type { JobRecord } from "../_shared/types.ts";
 
 Deno.serve(async (req: Request) => {
@@ -19,6 +19,7 @@ Deno.serve(async (req: Request) => {
   if (!identity) return errorResponse("Unauthorized", 401);
 
   if (req.method === "GET") {
+    const { readJobs } = await import("../_shared/db.ts");
     const { jobs } = await readJobs(identity.userId);
     const exportedAt = new Date().toISOString();
     return jsonResponse({
@@ -43,16 +44,20 @@ Deno.serve(async (req: Request) => {
 
   const incomingJobs = body.jobs as JobRecord[];
 
-  const { jobs: existingJobs } = await readJobs(identity.userId);
-  const existingKeys = new Set(
-    existingJobs.map((j) => `${j.title.toLowerCase()}|${j.company.toLowerCase()}`)
-  );
+  const existingJobs = await readJobsForDuplicateCheck(identity.userId);
+
+  function duplicateKey(j: { title?: string; company?: string; techStack?: string[] }): string {
+    const title = (j.title ?? "").trim().toLowerCase();
+    const company = (j.company ?? "").trim().toLowerCase();
+    const tech = (Array.isArray(j.techStack) ? j.techStack : []).slice().sort();
+    const techPart = tech.join("|").toLowerCase();
+    return `${title}|${company}|${techPart}`;
+  }
+
+  const existingKeys = new Set(existingJobs.map(duplicateKey));
 
   const now = new Date().toISOString();
-  const toCreate = incomingJobs.filter((j) => {
-    const key = `${(j.title ?? "").toLowerCase()}|${(j.company ?? "").toLowerCase()}`;
-    return !existingKeys.has(key);
-  });
+  const toCreate = incomingJobs.filter((j) => !existingKeys.has(duplicateKey(j)));
 
   let created = 0;
   const errors: string[] = [];

@@ -86,6 +86,8 @@ CREATE INDEX IF NOT EXISTS jobs_status_idx      ON public.jobs (status);
 CREATE INDEX IF NOT EXISTS jobs_applied_at_idx  ON public.jobs (applied_at DESC);
 CREATE INDEX IF NOT EXISTS jobs_title_idx       ON public.jobs USING gin (to_tsvector('english', title));
 CREATE INDEX IF NOT EXISTS jobs_company_idx     ON public.jobs USING gin (to_tsvector('english', company));
+CREATE INDEX IF NOT EXISTS jobs_owner_id_applied_at_idx       ON public.jobs (owner_id, applied_at DESC);
+CREATE INDEX IF NOT EXISTS jobs_owner_id_status_applied_at_idx ON public.jobs (owner_id, status, applied_at DESC);
 
 ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
 
@@ -110,12 +112,17 @@ CREATE TABLE IF NOT EXISTS public.resumes (
   content_type     text        NOT NULL DEFAULT 'application/pdf',
   content          text        NOT NULL DEFAULT '',
   parsed_content   text        NOT NULL DEFAULT '{}',
-  is_verified      boolean     NOT NULL DEFAULT false,
+  is_verified      boolean     NOT NULL DEFAULT true,
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS resumes_owner_id_idx ON public.resumes (owner_id);
+CREATE INDEX IF NOT EXISTS resumes_owner_updated_at_idx ON public.resumes (owner_id, updated_at DESC);
+
+ALTER TABLE public.resumes
+  ALTER COLUMN is_verified SET DEFAULT true;
+UPDATE public.resumes SET is_verified = true WHERE is_verified = false;
 
 ALTER TABLE public.resumes ENABLE ROW LEVEL SECURITY;
 

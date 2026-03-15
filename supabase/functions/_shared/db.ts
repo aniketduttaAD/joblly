@@ -95,6 +95,24 @@ export interface JobsStats {
   statusCounts: Record<JobStatus, number>;
 }
 
+export async function readJobsForDuplicateCheck(
+  ownerId: string
+): Promise<{ title: string; company: string; techStack: string[] }[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("jobs")
+    .select("title, company, tech_stack")
+    .eq("owner_id", ownerId)
+    .order("applied_at", { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    title: (row.title as string) ?? "",
+    company: (row.company as string) ?? "",
+    techStack: Array.isArray(row.tech_stack) ? (row.tech_stack as string[]) : [],
+  }));
+}
+
 export async function readJobs(ownerId: string): Promise<{ jobs: JobRecord[]; updatedAt: string }> {
   const supabase = createAdminClient();
   const { data, error } = await supabase
@@ -223,17 +241,32 @@ export async function deleteJobs(ids: string[], ownerId: string): Promise<number
   return results.filter(Boolean).length;
 }
 
+/**
+ * Search jobs by title and/or company (FTS) with optional status filter.
+ * When q is empty but status is set, returns jobs filtered by status only (uses owner_id + status index).
+ */
 export async function searchJobsByTitleCompany(
   ownerId: string,
   q: string,
   status?: JobStatus
 ): Promise<{ jobs: JobRecord[]; total: number }> {
   const trimmed = q.trim();
-  if (!trimmed) return { jobs: [], total: 0 };
+  const supabase = createAdminClient();
+
+  if (!trimmed) {
+    if (!status) return { jobs: [], total: 0 };
+    const { data, error, count } = await supabase
+      .from("jobs")
+      .select("*", { count: "exact" })
+      .eq("owner_id", ownerId)
+      .eq("status", status)
+      .order("applied_at", { ascending: false });
+    if (error) throw error;
+    const jobs = (data ?? []).map(rowToJobRecord);
+    return { jobs, total: count ?? jobs.length };
+  }
 
   const search = trimmed.replace(/[':]/g, " ").replace(/\s+/g, " ").trim();
-
-  const supabase = createAdminClient();
   let query = supabase
     .from("jobs")
     .select("*", { count: "exact" })

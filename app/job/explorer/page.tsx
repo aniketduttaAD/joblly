@@ -297,24 +297,31 @@ export default function JobsExplorerPage() {
         };
 
         try {
-          const resExisting = await appFetch(sfn("jobs"));
+          const resExisting = await appFetch(sfn("jobs", { page: 1, limit: 100 }));
           const dataExisting = await resExisting.json().catch(() => ({}));
           if (Array.isArray((dataExisting as { jobs?: unknown }).jobs)) {
-            const existingJobs = (dataExisting as { jobs: { title: string; company: string }[] })
-              .jobs;
-            const key = `${job.title.trim().toLowerCase()}::${job.company.trim().toLowerCase()}`;
-            const exists = existingJobs.some(
-              (j) =>
-                j.title &&
-                j.company &&
-                `${j.title.trim().toLowerCase()}::${j.company.trim().toLowerCase()}` === key
-            );
-            if (
-              exists &&
-              !window.confirm(
-                "A job with the same title and company already exists in the tracker. Do you still want to add this job?"
-              )
-            ) {
+            const existingJobs = (
+              dataExisting as {
+                jobs: { title: string; company: string; techStack?: string[] }[];
+              }
+            ).jobs;
+            const incomingTitle = job.title.trim().toLowerCase();
+            const incomingCompany = job.company.trim().toLowerCase();
+            const incomingTech = (body.techStack ?? []).slice().sort();
+            const incomingTechKey = incomingTech.join("|").toLowerCase();
+
+            const isDuplicate = existingJobs.some((j) => {
+              const titleMatch =
+                (j.title ?? "").trim().toLowerCase() === incomingTitle &&
+                (j.company ?? "").trim().toLowerCase() === incomingCompany;
+              if (!titleMatch) return false;
+              const existingTech = (Array.isArray(j.techStack) ? j.techStack : []).slice().sort();
+              const existingTechKey = existingTech.join("|").toLowerCase();
+              return existingTechKey === incomingTechKey;
+            });
+
+            if (isDuplicate) {
+              showNotify("Already in tracker (same title, company and tech stack)", "info");
               setAddToTrackerLoadingId(null);
               return;
             }

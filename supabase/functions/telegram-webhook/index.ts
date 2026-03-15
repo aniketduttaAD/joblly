@@ -295,16 +295,16 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
         return;
       }
 
-      const results = await searchJobsByTitleCompany(linkedUser.userId, query, 20);
-      if (results.length === 0) {
+      const results = await searchJobsByTitleCompany(linkedUser.userId, query);
+      if (results.jobs.length === 0) {
         await sendTelegramMessage(chatId, `No jobs found for "${query}".`);
         return;
       }
 
       await sendTelegramMessageWithKeyboard(
         chatId,
-        `Search: "${query}" — ${results.length} result(s). Tap an item for full details.`,
-        buildJobListKeyboard(results),
+        `Search: "${query}" — ${results.total} result(s). Tap an item for full details.`,
+        buildJobListKeyboard(results.jobs),
         { parse_mode: "HTML" }
       );
       return;

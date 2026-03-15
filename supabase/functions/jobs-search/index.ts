@@ -27,7 +27,7 @@ Deno.serve(async (req: Request) => {
   const statusParam = url.searchParams.get("status") ?? "";
   const status = VALID_STATUSES.has(statusParam) ? (statusParam as JobStatus) : undefined;
 
-  if (!q) return jsonResponse({ jobs: [], total: 0 });
+  if (!q && !status) return jsonResponse({ jobs: [], total: 0 });
 
   try {
     const result = await searchJobsByTitleCompany(identity.userId, q, status);

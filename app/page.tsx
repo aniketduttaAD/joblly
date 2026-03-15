@@ -38,6 +38,7 @@ export default function HomePage() {
   const [totalJobsCount, setTotalJobsCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [searchStatus, setSearchStatus] = useState<JobStatus | "">("");
   const [searchedJobs, setSearchedJobs] = useState<JobRecord[] | null>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [stats, setStats] = useState<{
@@ -147,7 +148,8 @@ export default function HomePage() {
 
   useEffect(() => {
     const q = search.trim();
-    if (!q) {
+    const statusFilter = searchStatus || undefined;
+    if (!q && !statusFilter) {
       setSearchedJobs(null);
       setSearchLoading(false);
       return;
@@ -160,7 +162,8 @@ export default function HomePage() {
       const runSearch = async () => {
         try {
           const params = new URLSearchParams();
-          params.set("q", q);
+          if (q) params.set("q", q);
+          if (statusFilter) params.set("status", statusFilter);
 
           const res = await appFetch(`${sfn("jobs-search")}?${params.toString()}`);
           const data = await res.json().catch(() => ({}));
@@ -188,9 +191,9 @@ export default function HomePage() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [appFetch, search]);
+  }, [appFetch, search, searchStatus]);
 
-  const useServerPagination = !search.trim();
+  const useServerPagination = !search.trim() && !searchStatus;
   const baseJobs = searchedJobs !== null ? searchedJobs : jobs;
 
   const totalPages = useServerPagination
@@ -203,7 +206,7 @@ export default function HomePage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search]);
+  }, [search, searchStatus]);
 
   const totalJobs = stats?.total ?? totalJobsCount;
   const appliedThisWeek = stats?.appliedThisWeek ?? 0;
@@ -828,11 +831,12 @@ export default function HomePage() {
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full rounded-lg border border-beige-300 bg-white py-2.5 pl-9 pr-10 text-sm text-stone-800 placeholder-stone-400 focus:border-orange-brand focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
               />
-              {search.trim() && (
+              {(search.trim() || searchStatus) && (
                 <button
                   type="button"
                   onClick={() => {
                     setSearch("");
+                    setSearchStatus("");
                     setSearchedJobs(null);
                     setSearchLoading(false);
                   }}
@@ -842,6 +846,19 @@ export default function HomePage() {
                 </button>
               )}
             </div>
+            <select
+              value={searchStatus}
+              onChange={(e) => setSearchStatus((e.target.value || "") as JobStatus | "")}
+              className="min-h-[44px] rounded-lg border border-beige-300 bg-white px-3 py-2.5 text-sm text-stone-800 focus:border-orange-brand focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
+              title="Filter by status"
+            >
+              <option value="">All statuses</option>
+              {JOB_STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
             <div className="flex shrink-0 flex-wrap items-center gap-2 sm:gap-3">
               <button
                 type="button"
