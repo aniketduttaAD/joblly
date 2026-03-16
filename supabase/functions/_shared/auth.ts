@@ -24,49 +24,121 @@ export function createAdminClient() {
   });
 }
 
-export function createUserClient(jwt: string) {
-  return createClient(getSupabaseUrl(), getAnonKey(), {
-    global: { headers: { Authorization: `Bearer ${jwt}` } },
-    auth: { persistSession: false },
-  });
+function getJwtSecret(): string {
+  const secret = Deno.env.get("API_KEY") ?? "";
+  if (!secret) {
+    throw new Error("API_KEY is not configured");
+  }
+  return secret;
+}
+
+function parseCookies(req: Request): Record<string, string> {
+  const cookieHeader = req.headers.get("cookie") ?? "";
+  if (!cookieHeader) return {};
+  return Object.fromEntries(
+    cookieHeader.split(";").map((c) => {
+      const [k, ...v] = c.trim().split("=");
+      return [k.trim(), decodeURIComponent(v.join("="))];
+    })
+  );
+}
+
+export function getAppJwtFromRequest(req: Request): string | null {
+  const authHeader = req.headers.get("authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    return authHeader.slice(7).trim();
+  }
+
+  const cookies = parseCookies(req);
+  const cookieToken = cookies["jobtracker_session"];
+  return cookieToken ?? null;
+}
+
+export async function verifyAppJwt(
+  token: string
+): Promise<{ userId: string; email: string } | null> {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+
+  const [headerB64, payloadB64, signatureB64] = parts;
+
+  const encoder = new TextEncoder();
+
+  const base64UrlToBytes = (input: string): Uint8Array => {
+    const pad = 4 - (input.length % 4 || 4);
+    const base64 = input.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(pad);
+    const raw = atob(base64);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) {
+      bytes[i] = raw.charCodeAt(i);
+    }
+    return bytes;
+  };
+
+  const data = encoder.encode(`${headerB64}.${payloadB64}`);
+  const signature = base64UrlToBytes(signatureB64);
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(getJwtSecret()),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["verify"]
+  );
+
+  const valid = await crypto.subtle.verify("HMAC", key, signature, data);
+  if (!valid) return null;
+
+  try {
+    const payloadJson = new TextDecoder().decode(base64UrlToBytes(payloadB64));
+    const payload = JSON.parse(payloadJson) as {
+      sub?: string;
+      email?: string;
+      exp?: number;
+    };
+    if (!payload.sub || !payload.email) return null;
+    if (typeof payload.exp === "number") {
+      const now = Math.floor(Date.now() / 1000);
+      if (payload.exp <= now) return null;
+    }
+    return { userId: payload.sub, email: payload.email };
+  } catch {
+    return null;
+  }
 }
 
 export async function getUserFromRequest(req: Request): Promise<AuthenticatedUserIdentity | null> {
-  const authHeader = req.headers.get("authorization");
-  let token: string | null = null;
-
-  if (authHeader?.startsWith("Bearer ")) {
-    token = authHeader.slice(7).trim();
-  }
-
-  if (!token) {
-    const cookieHeader = req.headers.get("cookie") ?? "";
-    const cookies = Object.fromEntries(
-      cookieHeader.split(";").map((c) => {
-        const [k, ...v] = c.trim().split("=");
-        return [k.trim(), decodeURIComponent(v.join("="))];
-      })
-    );
-    token = cookies["sb-access-token"] ?? cookies["jobtracker_session"] ?? null;
-  }
-
+  const token = getAppJwtFromRequest(req);
   if (!token) return null;
 
-  try {
-    const supabase = createUserClient(token);
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) return null;
+  const claims = await verifyAppJwt(token);
+  if (!claims) return null;
 
+  try {
+    const supabase = createAdminClient();
+    const { data, error } = await supabase
+      .from("app_users")
+      .select("id, email, name")
+      .eq("id", claims.userId)
+      .maybeSingle();
+    if (error || !data) {
+      return {
+        userId: claims.userId,
+        email: claims.email,
+        name: null,
+      };
+    }
     return {
-      userId: data.user.id,
-      email: data.user.email ?? "",
-      name:
-        (data.user.user_metadata?.full_name as string | undefined) ??
-        (data.user.user_metadata?.name as string | undefined) ??
-        null,
+      userId: data.id as string,
+      email: (data.email as string) ?? claims.email,
+      name: (data.name as string | null) ?? null,
     };
   } catch {
-    return null;
+    return {
+      userId: claims.userId,
+      email: claims.email,
+      name: null,
+    };
   }
 }
 

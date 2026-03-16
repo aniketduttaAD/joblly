@@ -1,7 +1,6 @@
 "use client";
 
 import { sfn } from "@/lib/supabase-api";
-import { supabaseBrowserClient } from "@/lib/supabase-browser";
 
 export type AuthUser = {
   id: string;
@@ -9,20 +8,11 @@ export type AuthUser = {
   name?: string;
 };
 
-async function getCurrentAccessToken(): Promise<string | null> {
-  const { data, error } = await supabaseBrowserClient.auth.getSession();
-  if (error) return null;
-  return data.session?.access_token ?? null;
-}
-
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
-    const token = await getCurrentAccessToken();
-    if (!token) return null;
-
     const response = await fetch(sfn("auth-me"), {
       cache: "no-store",
-      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
     });
     if (!response.ok) return null;
 
@@ -40,63 +30,64 @@ export async function sendEmailOtp(email: string): Promise<{ userId: string }> {
     throw new Error("Email is required.");
   }
 
-  const { error } = await supabaseBrowserClient.auth.signInWithOtp({
-    email: trimmedEmail,
-    options: {
-      shouldCreateUser: true,
-    },
+  const response = await fetch(sfn("auth-send-otp"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ email: trimmedEmail }),
   });
 
-  if (error) {
-    throw new Error(error.message || "Failed to send email code.");
+  if (!response.ok) {
+    const message =
+      (await response.json().catch(() => ({}) as any))?.error ?? "Failed to send email code.";
+    throw new Error(typeof message === "string" ? message : "Failed to send email code.");
   }
 
+  // Keep returning the email as userId to avoid changing callers.
   return { userId: trimmedEmail };
 }
 
 export async function verifyEmailOtp(userId: string, secret: string): Promise<AuthUser> {
   const email = userId.trim().toLowerCase();
-  const token = secret.trim();
+  const code = secret.trim();
 
-  if (!email || !token) {
+  if (!email || !code) {
     throw new Error("Invalid or expired code.");
   }
 
-  const { data, error } = await supabaseBrowserClient.auth.verifyOtp({
-    email,
-    token,
-    type: "email",
+  const response = await fetch(sfn("auth-verify-otp"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ email, code }),
   });
 
-  if (error || !data.session || !data.session.user) {
-    throw new Error(error?.message || "Invalid or expired code.");
+  if (!response.ok) {
+    const message =
+      (await response.json().catch(() => ({}) as any))?.error ??
+      "Invalid or expired code. Request a new one and try again.";
+    throw new Error(typeof message === "string" ? message : "Invalid or expired code.");
   }
 
-  const session = data.session;
-  const user = session.user;
+  const data = (await response.json()) as { id?: string; email?: string; name?: string };
+  if (!data.id) {
+    throw new Error("Invalid or expired code.");
+  }
 
   return {
-    id: user.id,
-    email: user.email ?? undefined,
-    name:
-      (user.user_metadata?.full_name as string | undefined) ??
-      (user.user_metadata?.name as string | undefined),
+    id: data.id,
+    email: data.email ?? undefined,
+    name: data.name ?? undefined,
   };
 }
 
 export async function signOut(): Promise<void> {
   try {
-    const token = await getCurrentAccessToken();
-    if (token) {
-      await fetch(sfn("auth-signout"), {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    }
-    await supabaseBrowserClient.auth.signOut();
-  } catch {
-  } finally {
-  }
+    await fetch(sfn("auth-signout"), {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch {}
 }
 
 export async function fetchWithAuth(
@@ -113,15 +104,5 @@ export async function fetchWithAuth(
     headers.set("Content-Type", "application/json");
   }
 
-  const token = await getCurrentAccessToken();
-  if (token && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (anonKey && !headers.has("apikey")) {
-    headers.set("apikey", anonKey);
-  }
-
-  return fetch(input, { ...init, headers });
+  return fetch(input, { ...init, headers, credentials: "include" });
 }

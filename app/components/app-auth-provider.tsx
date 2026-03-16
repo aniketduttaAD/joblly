@@ -132,10 +132,10 @@ function AuthGate({
                 id="auth-otp"
                 type="text"
                 inputMode="numeric"
-                maxLength={6}
+                maxLength={4}
                 value={authOtp}
                 onChange={(event) => onOtpChange(event.target.value)}
-                placeholder="6-digit code"
+                placeholder="4-digit code"
                 autoComplete="one-time-code"
                 autoFocus
                 disabled={authLoading}
@@ -158,7 +158,7 @@ function AuthGate({
               </button>
               <button
                 type="submit"
-                disabled={authLoading || authOtp.trim().length !== 6}
+                disabled={authLoading || authOtp.trim().length !== 4}
                 className="flex-1 rounded-lg bg-orange-brand py-3 text-sm font-medium text-white hover:bg-orange-dark focus:outline-none focus:ring-2 focus:ring-orange-brand/30 disabled:opacity-60"
               >
                 {authLoading ? (
@@ -223,7 +223,7 @@ export function AppAuthProvider({ children }: { children: ReactNode }) {
     setAuthenticated(true);
     setUser(nextUser);
     return true;
-  }, [authRequired]);
+  }, [authRequired, authenticated]);
 
   const appFetch = useCallback<AuthContextValue["appFetch"]>(
     async (input, init = {}) => {
@@ -241,27 +241,15 @@ export function AppAuthProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        const statusRes = await fetch(sfn("auth-status"));
-        const statusData = (await statusRes.json().catch(() => ({}))) as {
-          authRequired?: boolean;
-        };
-        if (cancelled) return;
-
-        const required = statusRes.ok ? statusData.authRequired === true : true;
-        setAuthRequired(required);
-
-        if (!required) {
-          setAuthenticated(true);
-          setReady(true);
-          return;
-        }
-
         const nextUser = await getCurrentUser();
         if (cancelled) return;
 
         if (nextUser) {
+          setAuthRequired(true);
           setAuthenticated(true);
           setUser(nextUser);
+        } else {
+          setAuthRequired(true);
         }
       } finally {
         if (!cancelled) setReady(true);

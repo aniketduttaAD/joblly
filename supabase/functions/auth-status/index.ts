@@ -7,6 +7,5 @@ Deno.serve(async (req: Request) => {
 
   if (req.method !== "GET") return errorResponse("Method not allowed", 405);
 
-  const authRequired = Deno.env.get("AUTH_REQUIRED") !== "false";
-  return jsonResponse({ authRequired });
+  return jsonResponse({ authRequired: true });
 });
