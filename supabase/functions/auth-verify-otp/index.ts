@@ -70,9 +70,11 @@ async function createJwt(
 
 function createSessionCookie(token: string): string {
   const isProd = Deno.env.get("NODE_ENV") === "production";
-  const parts = [`jobtracker_session=${token}`, "Path=/", "HttpOnly", "SameSite=Lax"];
+  const parts = [`jobtracker_session=${token}`, "Path=/", "HttpOnly"];
   if (isProd) {
-    parts.push("Secure");
+    parts.push("SameSite=None", "Secure", "Partitioned");
+  } else {
+    parts.push("SameSite=Lax");
   }
   return parts.join("; ");
 }

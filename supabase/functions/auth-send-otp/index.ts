@@ -21,13 +21,16 @@ const SEND_LIMITS = {
   ip: { maxAttempts: 10, windowMinutes: 60, blockMinutes: 60 },
 } as const;
 
-async function sendOtpEmail(email: string, code: string) {
+async function sendOtpEmail(email: string, code: string, timeoutMs = 8000) {
   const apiKey = Deno.env.get("RESEND_API_KEY");
   const from = Deno.env.get("RESEND_FROM_EMAIL");
 
   if (!apiKey || !from) {
     throw new Error("OTP delivery is not configured.");
   }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort("otp-email-timeout"), timeoutMs);
 
   const payload = {
     from,
@@ -36,18 +39,23 @@ async function sendOtpEmail(email: string, code: string) {
     html: `<p>Your verification code is <strong>${code}</strong>. It will expire in ${OTP_EXPIRY_MINUTES} minutes.</p>`,
   };
 
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
 
-  if (!res.ok) {
-    const details = await res.text().catch(() => res.statusText);
-    throw new Error(details || "Failed to deliver OTP email.");
+    if (!res.ok) {
+      const details = await res.text().catch(() => res.statusText);
+      throw new Error(details || "Failed to deliver OTP email.");
+    }
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -106,15 +114,24 @@ Deno.serve(async (req: Request) => {
       expiresAt,
       maxAttempts: MAX_VERIFY_ATTEMPTS,
     });
-    await sendOtpEmail(email, code);
   } catch (error) {
-    await deleteOtpRows(email);
-    console.error("auth-send-otp error:", error);
+    console.error("auth-send-otp save error:", error);
     return errorResponse("Unable to send a verification code right now. Please try again.", 500);
   }
 
   await incrementRateLimit("send_otp", "email", email, SEND_LIMITS.email);
   await incrementRateLimit("send_otp", "ip", ip, SEND_LIMITS.ip);
+
+  const deliveryTask = sendOtpEmail(email, code).catch(async (error) => {
+    console.error("auth-send-otp delivery error:", error);
+    await deleteOtpRows(email);
+  });
+
+  try {
+    EdgeRuntime.waitUntil(deliveryTask);
+  } catch {
+    void deliveryTask;
+  }
 
   return jsonResponse({
     userId: email,

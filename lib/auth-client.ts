@@ -8,13 +8,48 @@ export type AuthUser = {
   name?: string;
 };
 
+const AUTH_TOKEN_STORAGE_KEY = "jobtracker_auth_token";
+
+function getStoredAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function setStoredAuthToken(token: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+  } catch {}
+}
+
+function clearStoredAuthToken(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  } catch {}
+}
+
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
+    const headers = new Headers();
+    const token = getStoredAuthToken();
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+
     const response = await fetch(sfn("auth-me"), {
       cache: "no-store",
       credentials: "include",
+      headers,
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      if (response.status === 401) clearStoredAuthToken();
+      return null;
+    }
 
     const data = (await response.json()) as { id?: string; email?: string; name?: string };
     if (!data.id) return null;
@@ -69,9 +104,18 @@ export async function verifyEmailOtp(userId: string, secret: string): Promise<Au
     throw new Error(typeof message === "string" ? message : "Unable to verify the code.");
   }
 
-  const data = (await response.json()) as { id?: string; email?: string; name?: string };
+  const data = (await response.json()) as {
+    id?: string;
+    email?: string;
+    name?: string;
+    token?: string;
+  };
   if (!data.id) {
     throw new Error("Unable to verify the code.");
+  }
+
+  if (typeof data.token === "string" && data.token) {
+    setStoredAuthToken(data.token);
   }
 
   return {
@@ -83,11 +127,18 @@ export async function verifyEmailOtp(userId: string, secret: string): Promise<Au
 
 export async function signOut(): Promise<void> {
   try {
+    const headers = new Headers();
+    const token = getStoredAuthToken();
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
     await fetch(sfn("auth-signout"), {
       method: "POST",
       credentials: "include",
+      headers,
     });
   } catch {}
+  clearStoredAuthToken();
 }
 
 export async function fetchWithAuth(
@@ -95,14 +146,23 @@ export async function fetchWithAuth(
   init: RequestInit = {}
 ): Promise<Response> {
   const headers = new Headers(init.headers);
+  const token = getStoredAuthToken();
   const body = init.body;
   const isMultipart = typeof FormData !== "undefined" && body instanceof FormData;
   const isBinary = typeof Blob !== "undefined" && body instanceof Blob;
   const isSearchParams = typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams;
 
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
   if (body && !headers.has("Content-Type") && !isMultipart && !isBinary && !isSearchParams) {
     headers.set("Content-Type", "application/json");
   }
 
-  return fetch(input, { ...init, headers, credentials: "include" });
+  const response = await fetch(input, { ...init, headers, credentials: "include" });
+  if (response.status === 401) {
+    clearStoredAuthToken();
+  }
+  return response;
 }

@@ -3,9 +3,11 @@ import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
 
 function createExpiredSessionCookie(): string {
   const isProd = Deno.env.get("NODE_ENV") === "production";
-  const parts = ["jobtracker_session=", "Path=/", "Max-Age=0", "HttpOnly", "SameSite=Lax"];
+  const parts = ["jobtracker_session=", "Path=/", "Max-Age=0", "HttpOnly"];
   if (isProd) {
-    parts.push("Secure");
+    parts.push("SameSite=None", "Secure", "Partitioned");
+  } else {
+    parts.push("SameSite=Lax");
   }
   return parts.join("; ");
 }

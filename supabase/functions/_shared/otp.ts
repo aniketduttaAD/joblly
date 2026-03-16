@@ -114,11 +114,11 @@ export async function getLatestOtpRow(email: string): Promise<OtpRow | null> {
   if (stale.length > 0) {
     const staleIds = stale.map((row) => row.id).filter(Boolean);
     if (staleIds.length > 0) {
-      await supabase
-        .from("email_otps")
-        .delete()
-        .in("id", staleIds)
-        .catch(() => {});
+      try {
+        await supabase.from("email_otps").delete().in("id", staleIds);
+      } catch (error) {
+        console.error("otp stale cleanup error:", error);
+      }
     }
   }
 
@@ -127,11 +127,11 @@ export async function getLatestOtpRow(email: string): Promise<OtpRow | null> {
 
 export async function deleteOtpRows(email: string): Promise<void> {
   const supabase = createAdminClient();
-  await supabase
-    .from("email_otps")
-    .delete()
-    .eq("email", email)
-    .catch(() => {});
+  try {
+    await supabase.from("email_otps").delete().eq("email", email);
+  } catch (error) {
+    console.error("otp delete rows error:", error);
+  }
 }
 
 export async function saveOtpRow(
@@ -316,8 +316,7 @@ export async function clearRateLimit(
       .delete()
       .eq("action", action)
       .eq("scope", scope)
-      .eq("scope_key", scopeKey)
-      .catch(() => {});
+      .eq("scope_key", scopeKey);
   } catch (error) {
     console.error("otp rate-limit clear error:", error);
   }

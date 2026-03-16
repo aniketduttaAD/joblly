@@ -25,10 +25,16 @@ export function createAdminClient() {
 }
 
 export function getAppJwtSecret(): string {
-  const secret = Deno.env.get("APP_JWT_SECRET") ?? Deno.env.get("API_KEY") ?? "";
+  const secret =
+    Deno.env.get("APP_JWT_SECRET") ??
+    Deno.env.get("SUPABASE_JWT_SECRET") ??
+    Deno.env.get("API_KEY") ??
+    "";
+
   if (!secret) {
-    throw new Error("APP_JWT_SECRET or API_KEY is not configured");
+    throw new Error("APP_JWT_SECRET, SUPABASE_JWT_SECRET, or API_KEY is not configured");
   }
+
   return secret;
 }
 
