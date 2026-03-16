@@ -1,6 +1,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
-import { getUserFromRequest } from "../_shared/auth.ts";
+
+function createExpiredSessionCookie(): string {
+  const isProd = Deno.env.get("NODE_ENV") === "production";
+  const parts = ["jobtracker_session=", "Path=/", "Max-Age=0", "HttpOnly", "SameSite=Lax"];
+  if (isProd) {
+    parts.push("Secure");
+  }
+  return parts.join("; ");
+}
 
 Deno.serve(async (req: Request) => {
   const cors = handleCors(req);
@@ -8,13 +16,10 @@ Deno.serve(async (req: Request) => {
 
   if (req.method !== "POST") return errorResponse("Method not allowed", 405);
 
-  const identity = await getUserFromRequest(req);
-  if (!identity) return errorResponse("Unauthorized", 401);
-
   const response = jsonResponse({ success: true });
 
   const headers = new Headers(response.headers);
-  headers.append("Set-Cookie", `jobtracker_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`);
+  headers.append("Set-Cookie", createExpiredSessionCookie());
 
   return new Response(response.body, { status: response.status, headers });
 });

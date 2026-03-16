@@ -52,7 +52,7 @@ export async function verifyEmailOtp(userId: string, secret: string): Promise<Au
   const code = secret.trim();
 
   if (!email || !code) {
-    throw new Error("Invalid or expired code.");
+    throw new Error("Enter the code from your email.");
   }
 
   const response = await fetch(sfn("auth-verify-otp"), {
@@ -65,13 +65,13 @@ export async function verifyEmailOtp(userId: string, secret: string): Promise<Au
   if (!response.ok) {
     const message =
       (await response.json().catch(() => ({}) as any))?.error ??
-      "Invalid or expired code. Request a new one and try again.";
-    throw new Error(typeof message === "string" ? message : "Invalid or expired code.");
+      "Unable to verify the code. Please request a new one and try again.";
+    throw new Error(typeof message === "string" ? message : "Unable to verify the code.");
   }
 
   const data = (await response.json()) as { id?: string; email?: string; name?: string };
   if (!data.id) {
-    throw new Error("Invalid or expired code.");
+    throw new Error("Unable to verify the code.");
   }
 
   return {

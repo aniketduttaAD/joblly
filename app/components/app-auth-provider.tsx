@@ -365,7 +365,7 @@ export function AppAuthProvider({ children }: { children: ReactNode }) {
             setAuthError("");
           }}
           onOtpChange={(value) => {
-            setAuthOtp(value.replace(/\D/g, "").slice(0, 6));
+            setAuthOtp(value.replace(/\D/g, "").slice(0, 4));
             setAuthError("");
           }}
           onSendOtp={handleSendOtp}

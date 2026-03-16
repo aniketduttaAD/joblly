@@ -1,29 +1,28 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
-import { createAdminClient } from "../_shared/auth.ts";
+import { createAdminClient, getAppJwtSecret } from "../_shared/auth.ts";
+import { upsertAppUser } from "../_shared/db.ts";
+import {
+  OTP_LENGTH,
+  assertPublicAuthRequest,
+  checkRateLimit,
+  clearRateLimit,
+  deleteOtpRows,
+  getClientIp,
+  getLatestOtpRow,
+  hashCode,
+  incrementOtpAttempt,
+  incrementRateLimit,
+  isValidEmail,
+  isValidOtpCode,
+  normalizeEmail,
+  timingSafeEqual,
+} from "../_shared/otp.ts";
 
-const OTP_LENGTH = 4;
-
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
-}
-
-async function hashCode(code: string, salt: string): Promise<string> {
-  const data = new TextEncoder().encode(`${salt}:${code}`);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  const bytes = new Uint8Array(digest);
-  return Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function getJwtSecret(): string {
-  const secret = Deno.env.get("API_KEY") ?? "";
-  if (!secret) {
-    throw new Error("API_KEY is not configured");
-  }
-  return secret;
-}
+const VERIFY_LIMITS = {
+  email: { maxAttempts: 7, windowMinutes: 15, blockMinutes: 30 },
+  ip: { maxAttempts: 25, windowMinutes: 15, blockMinutes: 30 },
+} as const;
 
 async function createJwt(
   payload: Record<string, unknown>,
@@ -57,7 +56,7 @@ async function createJwt(
 
   const key = await crypto.subtle.importKey(
     "raw",
-    encoder.encode(getJwtSecret()),
+    encoder.encode(getAppJwtSecret()),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]
@@ -84,6 +83,12 @@ Deno.serve(async (req: Request) => {
 
   if (req.method !== "POST") return errorResponse("Method not allowed", 405);
 
+  try {
+    assertPublicAuthRequest(req);
+  } catch {
+    return errorResponse("Forbidden", 403);
+  }
+
   let body: { email?: string; code?: string };
   try {
     body = await req.json();
@@ -93,97 +98,134 @@ Deno.serve(async (req: Request) => {
 
   const email = normalizeEmail(body.email ?? "");
   const code = (body.code ?? "").trim();
+  const ip = getClientIp(req);
 
-  if (!email || !code || code.length !== OTP_LENGTH) {
-    return errorResponse("Invalid or expired code.", 400);
+  if (!email) {
+    return errorResponse("Email is required.", 400);
+  }
+  if (!isValidEmail(email)) {
+    return errorResponse("Enter a valid email address.", 400);
+  }
+  if (!isValidOtpCode(code)) {
+    return errorResponse(`Enter the ${OTP_LENGTH}-digit code from your email.`, 400);
   }
 
-  const supabase = createAdminClient();
-  const nowIso = new Date().toISOString();
+  const emailLimit = await checkRateLimit("verify_otp", "email", email, VERIFY_LIMITS.email);
+  if (emailLimit.limited) {
+    return jsonResponse(
+      { error: "Too many incorrect code attempts for this email. Please wait and try again." },
+      429,
+      { "Retry-After": String(emailLimit.retryAfterSeconds) }
+    );
+  }
 
-  const { data: row, error: selectError } = await supabase
-    .from("email_otps")
-    .select("*")
-    .eq("email", email)
-    .maybeSingle();
+  const ipLimit = await checkRateLimit("verify_otp", "ip", ip, VERIFY_LIMITS.ip);
+  if (ipLimit.limited) {
+    return jsonResponse(
+      { error: "Too many OTP verification attempts from this network. Please try again later." },
+      429,
+      { "Retry-After": String(ipLimit.retryAfterSeconds) }
+    );
+  }
 
-  if (selectError) {
-    console.error("auth-verify-otp select error:", selectError);
-    return errorResponse("Invalid or expired code.", 401);
+  let row;
+  try {
+    row = await getLatestOtpRow(email);
+  } catch (error) {
+    console.error("auth-verify-otp select error:", error);
+    return errorResponse("Unable to verify the code right now. Please try again.", 500);
   }
 
   if (!row) {
-    return errorResponse("Invalid or expired code.", 401);
+    await incrementRateLimit("verify_otp", "email", email, VERIFY_LIMITS.email);
+    await incrementRateLimit("verify_otp", "ip", ip, VERIFY_LIMITS.ip);
+    return errorResponse("This code has expired. Request a new one and try again.", 401);
   }
 
-  const expiresAt = new Date(row.expires_at as string);
-  const now = new Date(nowIso);
+  const now = new Date();
+  const blockedUntil = row.blocked_until ? new Date(row.blocked_until) : null;
+  if (blockedUntil && !Number.isNaN(blockedUntil.getTime()) && blockedUntil > now) {
+    return jsonResponse(
+      { error: "Too many incorrect code attempts. Request a new code or try again later." },
+      429,
+      {
+        "Retry-After": String(
+          Math.max(1, Math.ceil((blockedUntil.getTime() - now.getTime()) / 1000))
+        ),
+      }
+    );
+  }
+
+  const expiresAt = new Date(row.expires_at);
   if (Number.isNaN(expiresAt.getTime()) || expiresAt <= now) {
-    await supabase
-      .from("email_otps")
-      .delete()
-      .eq("email", email)
-      .catch(() => {});
-    return errorResponse("Invalid or expired code.", 401);
+    await deleteOtpRows(email);
+    return errorResponse("This code has expired. Request a new one and try again.", 401);
   }
 
-  const attempts = (row.attempts as number) ?? 0;
-  const maxAttempts = (row.max_attempts as number) ?? 5;
-
-  const computedHash = await hashCode(code, row.salt as string);
-  const isMatch = computedHash === (row.code_hash as string);
+  const computedHash = await hashCode(code, row.salt);
+  const isMatch = timingSafeEqual(computedHash, row.code_hash);
 
   if (!isMatch) {
-    const nextAttempts = attempts + 1;
-    const update: Record<string, unknown> = { attempts: nextAttempts };
-    if (nextAttempts >= maxAttempts) {
-      update.blocked_until = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
+    try {
+      const nextAttempts = await incrementOtpAttempt(row);
+      await incrementRateLimit("verify_otp", "email", email, VERIFY_LIMITS.email);
+      await incrementRateLimit("verify_otp", "ip", ip, VERIFY_LIMITS.ip);
+
+      const attemptsRemaining = Math.max(0, (row.max_attempts ?? 5) - nextAttempts);
+      if (attemptsRemaining === 0) {
+        return errorResponse(
+          "Incorrect code. You have reached the maximum attempts. Request a new code.",
+          401
+        );
+      }
+      return errorResponse(
+        `Incorrect code. ${attemptsRemaining} attempt${attemptsRemaining === 1 ? "" : "s"} remaining.`,
+        401
+      );
+    } catch (error) {
+      console.error("auth-verify-otp update error:", error);
+      return errorResponse("Unable to verify the code right now. Please try again.", 500);
     }
-    await supabase
-      .from("email_otps")
-      .update(update)
-      .eq("email", email)
-      .catch(() => {});
-    return errorResponse("Invalid or expired code.", 401);
   }
 
-  await supabase
-    .from("email_otps")
-    .delete()
-    .eq("email", email)
-    .catch(() => {});
+  await deleteOtpRows(email);
+  await clearRateLimit("verify_otp", "email", email);
+  await clearRateLimit("verify_otp", "ip", ip);
 
+  const supabase = createAdminClient();
   const { data: userRow, error: userError } = await supabase
     .from("app_users")
     .select("id, email, name")
     .eq("email", email)
-    .limit(1)
-    .maybeSingle();
+    .order("created_at", { ascending: true })
+    .limit(1);
 
   let userId: string;
   let name: string | null = null;
 
   if (userError) {
     console.error("auth-verify-otp app_users select error:", userError);
-    return errorResponse("Invalid or expired code.", 401);
+    return errorResponse("Unable to finish sign-in right now. Please try again.", 500);
   }
 
-  if (userRow) {
-    userId = userRow.id as string;
-    name = (userRow.name as string | null) ?? null;
+  const existingUser = (userRow ?? [])[0] as
+    | { id: string; email: string; name: string | null }
+    | undefined;
+
+  if (existingUser) {
+    userId = existingUser.id;
+    name = existingUser.name ?? null;
   } else {
     userId = crypto.randomUUID();
-    const nowStr = new Date().toISOString();
-    const { error: insertError } = await supabase.from("app_users").insert({
-      id: userId,
-      email,
-      name: null,
-      created_at: nowStr,
-      updated_at: nowStr,
-    });
-    if (insertError) {
-      console.error("auth-verify-otp app_users insert error:", insertError);
-      return errorResponse("Invalid or expired code.", 401);
+    try {
+      await upsertAppUser({
+        userId,
+        email,
+        name: null,
+      });
+    } catch (error) {
+      console.error("auth-verify-otp app_users insert error:", error);
+      return errorResponse("Unable to finish sign-in right now. Please try again.", 500);
     }
   }
 
@@ -198,7 +240,7 @@ Deno.serve(async (req: Request) => {
     );
   } catch (err) {
     console.error("auth-verify-otp jwt error:", err);
-    return errorResponse("Invalid or expired code.", 401);
+    return errorResponse("Unable to finish sign-in right now. Please try again.", 500);
   }
 
   const response = jsonResponse({

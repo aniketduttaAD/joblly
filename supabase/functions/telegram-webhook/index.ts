@@ -50,7 +50,6 @@ const pendingSearchByChat = new Map<number, number>();
 
 function isEmail(text: string): boolean {
   const trimmed = text.trim();
-  // Simple email pattern good enough for chat input
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
 }
 
@@ -125,10 +124,6 @@ async function sendOtpEmail(email: string): Promise<void> {
   }
 }
 
-/**
- * Verifies the 6-digit OTP token for the given email.
- * Returns user info on success.
- */
 async function verifyOtpToken(
   email: string,
   token: string

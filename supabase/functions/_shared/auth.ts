@@ -24,10 +24,10 @@ export function createAdminClient() {
   });
 }
 
-function getJwtSecret(): string {
-  const secret = Deno.env.get("API_KEY") ?? "";
+export function getAppJwtSecret(): string {
+  const secret = Deno.env.get("APP_JWT_SECRET") ?? Deno.env.get("API_KEY") ?? "";
   if (!secret) {
-    throw new Error("API_KEY is not configured");
+    throw new Error("APP_JWT_SECRET or API_KEY is not configured");
   }
   return secret;
 }
@@ -57,39 +57,38 @@ export function getAppJwtFromRequest(req: Request): string | null {
 export async function verifyAppJwt(
   token: string
 ): Promise<{ userId: string; email: string } | null> {
-  const parts = token.split(".");
-  if (parts.length !== 3) return null;
-
-  const [headerB64, payloadB64, signatureB64] = parts;
-
-  const encoder = new TextEncoder();
-
-  const base64UrlToBytes = (input: string): Uint8Array => {
-    const pad = 4 - (input.length % 4 || 4);
-    const base64 = input.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(pad);
-    const raw = atob(base64);
-    const bytes = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) {
-      bytes[i] = raw.charCodeAt(i);
-    }
-    return bytes;
-  };
-
-  const data = encoder.encode(`${headerB64}.${payloadB64}`);
-  const signature = base64UrlToBytes(signatureB64);
-
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(getJwtSecret()),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["verify"]
-  );
-
-  const valid = await crypto.subtle.verify("HMAC", key, signature, data);
-  if (!valid) return null;
-
   try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+
+    const [headerB64, payloadB64, signatureB64] = parts;
+    const encoder = new TextEncoder();
+
+    const base64UrlToBytes = (input: string): Uint8Array => {
+      const pad = 4 - (input.length % 4 || 4);
+      const base64 = input.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(pad);
+      const raw = atob(base64);
+      const bytes = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) {
+        bytes[i] = raw.charCodeAt(i);
+      }
+      return bytes;
+    };
+
+    const data = encoder.encode(`${headerB64}.${payloadB64}`);
+    const signature = base64UrlToBytes(signatureB64);
+
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(getAppJwtSecret()),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["verify"]
+    );
+
+    const valid = await crypto.subtle.verify("HMAC", key, signature, data);
+    if (!valid) return null;
+
     const payloadJson = new TextDecoder().decode(base64UrlToBytes(payloadB64));
     const payload = JSON.parse(payloadJson) as {
       sub?: string;
@@ -111,7 +110,13 @@ export async function getUserFromRequest(req: Request): Promise<AuthenticatedUse
   const token = getAppJwtFromRequest(req);
   if (!token) return null;
 
-  const claims = await verifyAppJwt(token);
+  let claims: { userId: string; email: string } | null = null;
+  try {
+    claims = await verifyAppJwt(token);
+  } catch (error) {
+    console.error("getUserFromRequest verifyAppJwt error:", error);
+    return null;
+  }
   if (!claims) return null;
 
   try {
