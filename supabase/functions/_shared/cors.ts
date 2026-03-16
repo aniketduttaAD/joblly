@@ -1,5 +1,9 @@
+const allowedOrigin =
+  (Deno.env.get("SITE_URL") ?? "").replace(/\/$/, "") || "https://joblly.aniketdutta.space";
+
 export const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": allowedOrigin,
+  "Access-Control-Allow-Credentials": "true",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-api-key",
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
 };
