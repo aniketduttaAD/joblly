@@ -132,10 +132,10 @@ function AuthGate({
                 id="auth-otp"
                 type="text"
                 inputMode="numeric"
-                maxLength={4}
+                maxLength={6}
                 value={authOtp}
                 onChange={(event) => onOtpChange(event.target.value)}
-                placeholder="4-digit code"
+                placeholder="6-digit code"
                 autoComplete="one-time-code"
                 autoFocus
                 disabled={authLoading}
@@ -158,7 +158,7 @@ function AuthGate({
               </button>
               <button
                 type="submit"
-                disabled={authLoading || authOtp.trim().length !== 4}
+                disabled={authLoading || authOtp.trim().length !== 6}
                 className="flex-1 rounded-lg bg-orange-brand py-3 text-sm font-medium text-white hover:bg-orange-dark focus:outline-none focus:ring-2 focus:ring-orange-brand/30 disabled:opacity-60"
               >
                 {authLoading ? (
@@ -365,7 +365,7 @@ export function AppAuthProvider({ children }: { children: ReactNode }) {
             setAuthError("");
           }}
           onOtpChange={(value) => {
-            setAuthOtp(value.replace(/\D/g, "").slice(0, 4));
+            setAuthOtp(value.replace(/\D/g, "").slice(0, 6));
             setAuthError("");
           }}
           onSendOtp={handleSendOtp}

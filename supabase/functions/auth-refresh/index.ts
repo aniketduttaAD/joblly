@@ -78,5 +78,11 @@ Deno.serve(async (req: Request) => {
   const headers = new Headers(response.headers);
   headers.append("Set-Cookie", createAccessCookie(accessToken));
 
-  return new Response(response.body, { status: response.status, headers });
+  return new Response(
+    JSON.stringify({
+      ...identity,
+      token: accessToken,
+    }),
+    { status: response.status, headers }
+  );
 });

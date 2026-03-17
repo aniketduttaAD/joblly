@@ -266,12 +266,16 @@ export async function searchJobsByTitleCompany(
     return { jobs, total: count ?? jobs.length };
   }
 
-  const search = trimmed.replace(/[':]/g, " ").replace(/\s+/g, " ").trim();
+  const escaped = trimmed.replace(/[%_]/g, "\\$&");
+  const pattern = `%${escaped}%`;
+
   let query = supabase
     .from("jobs")
     .select("*", { count: "exact" })
     .eq("owner_id", ownerId)
-    .or(`title.fts.${search},company.fts.${search}`)
+    .or(
+      [`title.ilike.${pattern}`, `company.ilike.${pattern}`, `location.ilike.${pattern}`].join(",")
+    )
     .order("applied_at", { ascending: false });
 
   if (status) {

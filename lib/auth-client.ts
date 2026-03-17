@@ -8,11 +8,36 @@ export type AuthUser = {
   name?: string;
 };
 
+const ACCESS_TOKEN_STORAGE_KEY = "jobtracker_access_token";
+
+function readStoredAccessToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+}
+
+function storeAccessToken(token: string | null) {
+  if (typeof window === "undefined") return;
+  if (!token) {
+    window.sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+    return;
+  }
+  window.sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
+}
+
+function withAccessToken(init: RequestInit = {}): RequestInit {
+  const headers = new Headers(init.headers);
+  const token = readStoredAccessToken();
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  return { ...init, headers };
+}
+
 async function fetchWithRefresh(
   input: RequestInfo | URL,
   init: RequestInit = {}
 ): Promise<Response> {
-  const response = await fetch(input, { ...init, credentials: "include" });
+  const response = await fetch(input, { ...withAccessToken(init), credentials: "include" });
   if (response.status !== 401 || input === sfn("auth-refresh")) {
     return response;
   }
@@ -23,10 +48,16 @@ async function fetchWithRefresh(
   });
 
   if (!refreshResponse.ok) {
+    storeAccessToken(null);
     return response;
   }
 
-  return fetch(input, { ...init, credentials: "include" });
+  const refreshData = (await refreshResponse.json().catch(() => ({}))) as { token?: string };
+  if (typeof refreshData.token === "string" && refreshData.token) {
+    storeAccessToken(refreshData.token);
+  }
+
+  return fetch(input, { ...withAccessToken(init), credentials: "include" });
 }
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
@@ -94,9 +125,14 @@ export async function verifyEmailOtp(userId: string, secret: string): Promise<Au
     id?: string;
     email?: string;
     name?: string;
+    token?: string;
   };
   if (!data.id) {
     throw new Error("Unable to verify the code.");
+  }
+
+  if (typeof data.token === "string" && data.token) {
+    storeAccessToken(data.token);
   }
 
   return {
@@ -113,6 +149,7 @@ export async function signOut(): Promise<void> {
       credentials: "include",
     });
   } catch {}
+  storeAccessToken(null);
 }
 
 export async function fetchWithAuth(

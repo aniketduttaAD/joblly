@@ -229,14 +229,20 @@ function buildCookie(
   value: string,
   options: { maxAgeSeconds?: number; expireNow?: boolean } = {}
 ): string {
-  const isProd = Deno.env.get("NODE_ENV") === "production";
+  const siteUrl = Deno.env.get("SITE_URL") ?? "";
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const isLocalSite =
+    /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(siteUrl) ||
+    /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(supabaseUrl);
+  const useCrossSiteCookies =
+    !isLocalSite && (siteUrl.startsWith("https://") || supabaseUrl.startsWith("https://"));
   const parts = [`${name}=${encodeURIComponent(value)}`, "Path=/", "HttpOnly"];
   if (options.expireNow) {
     parts.push("Max-Age=0");
   } else if (typeof options.maxAgeSeconds === "number") {
     parts.push(`Max-Age=${options.maxAgeSeconds}`);
   }
-  if (isProd) {
+  if (useCrossSiteCookies) {
     parts.push("SameSite=None", "Secure", "Partitioned");
   } else {
     parts.push("SameSite=Lax");
