@@ -132,10 +132,10 @@ function AuthGate({
                 id="auth-otp"
                 type="text"
                 inputMode="numeric"
-                maxLength={6}
+                maxLength={4}
                 value={authOtp}
                 onChange={(event) => onOtpChange(event.target.value)}
-                placeholder="6-digit code"
+                placeholder="4-digit code"
                 autoComplete="one-time-code"
                 autoFocus
                 disabled={authLoading}
@@ -158,7 +158,7 @@ function AuthGate({
               </button>
               <button
                 type="submit"
-                disabled={authLoading || authOtp.trim().length !== 6}
+                disabled={authLoading || authOtp.trim().length !== 4}
                 className="flex-1 rounded-lg bg-orange-brand py-3 text-sm font-medium text-white hover:bg-orange-dark focus:outline-none focus:ring-2 focus:ring-orange-brand/30 disabled:opacity-60"
               >
                 {authLoading ? (
