@@ -130,8 +130,12 @@ Deno.serve(async (req: Request) => {
     experienceSummary,
     inferredRequirements
   );
-  const contextPrompt = `JOB METADATA:\n${jobMetadata}\n\nNORMALIZED FACTS:\n${fitFacts}\n\nRESUME CONTENT:\n${resumeContent}\n\nJOB DESCRIPTION:\n${jdContent}\n\nEXPERIENCE SUMMARY:\n${experienceSummary}\n\nUse ONLY the evidence above. Be explicit about gaps, especially years-of-experience mismatches, missing tools, and missing leadership evidence. If the question asks about fit, answer with this format:\nVerdict: <plain conclusion>\nStrong matches:\n- ...\nGaps or concerns:\n- ...\nWhat to emphasize anyway:\n- ...`;
-  const userPrompt = `QUESTION: ${question}${extraInstructions ? `\n\nEXTRA INSTRUCTIONS: ${extraInstructions}` : ""}`;
+  const contextPrompt = `JOB METADATA:\n${jobMetadata}\n\nNORMALIZED FACTS:\n${fitFacts}\n\nRESUME CONTENT:\n${resumeContent}\n\nJOB DESCRIPTION:\n${jdContent}\n\nEXPERIENCE SUMMARY:\n${experienceSummary}\n\nUse ONLY the evidence above. Be explicit about gaps, especially years-of-experience mismatches, missing tools, and missing leadership evidence.\n\nWhen answering, always use clear paragraphs and bullets with blank lines between sections.\nIf the question asks about fit, use exactly this structure:\n\nVerdict:\n- <one plain conclusion sentence>\n\nStrong matches:\n- <bullet 1>\n- <bullet 2>\n\nGaps or concerns:\n- <bullet 1>\n- <bullet 2>\n\nWhat to emphasize anyway:\n- <bullet 1>\n- <bullet 2>`;
+  const userPrompt = `QUESTION:\n${question}${
+    extraInstructions
+      ? `\n\nEXTRA INSTRUCTIONS (follow, but do not break formatting rules):\n${extraInstructions}`
+      : ""
+  }`;
 
   const baseMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
     { role: "user", content: contextPrompt },
@@ -164,7 +168,7 @@ Deno.serve(async (req: Request) => {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
           body: JSON.stringify({
-            model: "gpt-4o-mini",
+            model: "gpt-4o",
             messages: [{ role: "system", content: buildSystemPrompt() }, ...baseMessages],
             temperature: 0.25,
             top_p: 0.9,

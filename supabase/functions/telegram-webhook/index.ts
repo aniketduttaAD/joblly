@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { errorResponse } from "../_shared/cors.ts";
+import { createAdminClient } from "../_shared/auth.ts";
 import {
   readJobs,
   addJob,
@@ -17,6 +18,7 @@ import {
   setTelegramChatUnlocked,
   clearTelegramChatSession,
   type TelegramChatLink,
+  upsertAppUser,
 } from "../_shared/db.ts";
 import {
   sendTelegramMessage,
@@ -30,12 +32,29 @@ import {
 } from "../_shared/telegram.ts";
 import { parseJobDescription, parseResultToJobRecord } from "../_shared/openai-parse.ts";
 import type { JobRecord, JobStatus } from "../_shared/types.ts";
+import {
+  OTP_EXPIRY_MINUTES,
+  OTP_LENGTH,
+  checkRateLimit,
+  clearRateLimit,
+  deleteOtpRows,
+  generateOtp,
+  getLatestOtpRow,
+  hashCode,
+  incrementOtpAttempt,
+  incrementRateLimit,
+  isValidEmail,
+  isValidOtpCode,
+  normalizeEmail,
+  saveOtpRow,
+  timingSafeEqual,
+} from "../_shared/otp.ts";
 
-const TELEGRAM_LOGIN_PROMPT =
-  "Send <code>/login your@email.com</code> to receive a 6-digit sign-in code.";
+const TELEGRAM_LOGIN_PROMPT = `Send <code>/login your@email.com</code> to receive a ${OTP_LENGTH}-digit sign-in code.`;
 const PENDING_ADD_TTL_MS = 5 * 60 * 1000;
 const PENDING_SEARCH_TTL_MS = 2 * 60 * 1000;
 const PENDING_OTP_TTL_MS = 15 * 60 * 1000;
+const TELEGRAM_MAX_VERIFY_ATTEMPTS = 5;
 const VALID_STATUSES: JobStatus[] = [
   "applied",
   "screening",
@@ -90,7 +109,7 @@ function clearPendingSearch(chatId: number): void {
 }
 
 function isOtpCode(text: string): boolean {
-  return /^\d{6}$/.test(text.trim());
+  return isValidOtpCode(text.trim());
 }
 
 function getTelegramReloginMessage(linkedUser: TelegramChatLink | null): string {
@@ -98,65 +117,217 @@ function getTelegramReloginMessage(linkedUser: TelegramChatLink | null): string 
     return `🔐 You are not logged in yet. ${TELEGRAM_LOGIN_PROMPT}`;
   }
   const label = linkedUser.name || linkedUser.email;
-  return `🔐 Your Telegram session for <b>${label}</b> has expired or is invalid. Send <code>/login ${linkedUser.email}</code> to receive a new 6-digit code.`;
+  return `🔐 Your Telegram session for <b>${label}</b> has expired or is invalid. Send <code>/login ${linkedUser.email}</code> to receive a new ${OTP_LENGTH}-digit code.`;
 }
 
-async function sendOtpEmail(email: string): Promise<void> {
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail) throw new Error("Email is required.");
+async function deliverOtpEmail(email: string, code: string): Promise<void> {
+  const apiKey = Deno.env.get("RESEND_API_KEY");
+  const from = Deno.env.get("RESEND_FROM_EMAIL");
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!apiKey || !from) {
+    throw new Error("OTP delivery is not configured.");
+  }
 
-  const res = await fetch(`${supabaseUrl}/auth/v1/otp`, {
+  const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      apikey: serviceRoleKey,
-      Authorization: `Bearer ${serviceRoleKey}`,
+      Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ email: normalizedEmail, create_user: true }),
+    body: JSON.stringify({
+      from,
+      to: [email],
+      subject: "Your sign-in code",
+      html: `<p>Your verification code is <strong>${code}</strong>. It will expire in ${OTP_EXPIRY_MINUTES} minutes.</p>`,
+    }),
   });
 
   if (!res.ok) {
-    const err = await res.text();
+    const err = await res.text().catch(() => res.statusText);
     throw new Error(`Failed to send OTP: ${res.status} ${err}`);
   }
 }
 
-async function verifyOtpToken(
-  email: string,
-  token: string
-): Promise<{ userId: string; email: string; name: string | null }> {
-  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+async function sendTelegramOtp(chatId: number, rawEmail: string): Promise<string> {
+  const email = normalizeEmail(rawEmail);
+  if (!email) throw new Error("Email is required.");
+  if (!isValidEmail(email)) throw new Error("Enter a valid email address.");
 
-  const res = await fetch(`${supabaseUrl}/auth/v1/verify`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: serviceRoleKey,
-      Authorization: `Bearer ${serviceRoleKey}`,
-    },
-    body: JSON.stringify({ type: "email", email, token }),
+  const emailLimit = await checkRateLimit("telegram_send_otp", "email", email, {
+    maxAttempts: 5,
+    windowMinutes: 60,
+    blockMinutes: 60,
   });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Invalid or expired code. Use /login again. (${res.status})`);
+  if (emailLimit.limited) {
+    throw new Error(
+      "Too many codes sent to this email. Please wait before requesting another one."
+    );
   }
 
-  const data = await res.json();
-  const user = data.user;
-  if (!user?.id) throw new Error("Verification did not return a valid user.");
+  const chatLimit = await checkRateLimit("telegram_send_otp", "chat", String(chatId), {
+    maxAttempts: 8,
+    windowMinutes: 60,
+    blockMinutes: 60,
+  });
+  if (chatLimit.limited) {
+    throw new Error("Too many login attempts from this chat. Please try again later.");
+  }
+
+  const code = generateOtp();
+  const salt = crypto.randomUUID();
+  const codeHash = await hashCode(code, salt);
+  const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60_000).toISOString();
+
+  await saveOtpRow(email, {
+    codeHash,
+    salt,
+    expiresAt,
+    maxAttempts: TELEGRAM_MAX_VERIFY_ATTEMPTS,
+  });
+
+  try {
+    await deliverOtpEmail(email, code);
+  } catch (error) {
+    await deleteOtpRows(email);
+    throw error;
+  }
+
+  await incrementRateLimit("telegram_send_otp", "email", email, {
+    maxAttempts: 5,
+    windowMinutes: 60,
+    blockMinutes: 60,
+  });
+  await incrementRateLimit("telegram_send_otp", "chat", String(chatId), {
+    maxAttempts: 8,
+    windowMinutes: 60,
+    blockMinutes: 60,
+  });
+
+  return email;
+}
+
+async function verifyTelegramOtp(
+  chatId: number,
+  rawEmail: string,
+  token: string
+): Promise<{ userId: string; email: string; name: string | null }> {
+  const email = normalizeEmail(rawEmail);
+  const code = token.trim();
+  if (!isValidOtpCode(code)) {
+    throw new Error(`Enter the ${OTP_LENGTH}-digit code from your email.`);
+  }
+
+  const emailLimit = await checkRateLimit("telegram_verify_otp", "email", email, {
+    maxAttempts: 7,
+    windowMinutes: 15,
+    blockMinutes: 30,
+  });
+  if (emailLimit.limited) {
+    throw new Error("Too many incorrect code attempts for this email. Please wait and try again.");
+  }
+
+  const chatLimit = await checkRateLimit("telegram_verify_otp", "chat", String(chatId), {
+    maxAttempts: 12,
+    windowMinutes: 15,
+    blockMinutes: 30,
+  });
+  if (chatLimit.limited) {
+    throw new Error("Too many code attempts from this chat. Please try again later.");
+  }
+
+  const row = await getLatestOtpRow(email);
+  if (!row) {
+    await incrementRateLimit("telegram_verify_otp", "email", email, {
+      maxAttempts: 7,
+      windowMinutes: 15,
+      blockMinutes: 30,
+    });
+    await incrementRateLimit("telegram_verify_otp", "chat", String(chatId), {
+      maxAttempts: 12,
+      windowMinutes: 15,
+      blockMinutes: 30,
+    });
+    throw new Error("This code has expired. Use /login again.");
+  }
+
+  const now = new Date();
+  const blockedUntil = row.blocked_until ? new Date(row.blocked_until) : null;
+  if (blockedUntil && !Number.isNaN(blockedUntil.getTime()) && blockedUntil > now) {
+    throw new Error("Too many incorrect code attempts. Use /login again later.");
+  }
+
+  const expiresAt = new Date(row.expires_at);
+  if (Number.isNaN(expiresAt.getTime()) || expiresAt <= now) {
+    await deleteOtpRows(email);
+    throw new Error("This code has expired. Use /login again.");
+  }
+
+  const computedHash = await hashCode(code, row.salt);
+  const isMatch = timingSafeEqual(computedHash, row.code_hash);
+  if (!isMatch) {
+    const nextAttempts = await incrementOtpAttempt(row);
+    await incrementRateLimit("telegram_verify_otp", "email", email, {
+      maxAttempts: 7,
+      windowMinutes: 15,
+      blockMinutes: 30,
+    });
+    await incrementRateLimit("telegram_verify_otp", "chat", String(chatId), {
+      maxAttempts: 12,
+      windowMinutes: 15,
+      blockMinutes: 30,
+    });
+
+    const attemptsRemaining = Math.max(
+      0,
+      (row.max_attempts ?? TELEGRAM_MAX_VERIFY_ATTEMPTS) - nextAttempts
+    );
+    if (attemptsRemaining === 0) {
+      throw new Error("Incorrect code. Maximum attempts reached. Use /login again.");
+    }
+    throw new Error(
+      `Incorrect code. ${attemptsRemaining} attempt${attemptsRemaining === 1 ? "" : "s"} remaining.`
+    );
+  }
+
+  await deleteOtpRows(email);
+  await clearRateLimit("telegram_verify_otp", "email", email);
+  await clearRateLimit("telegram_verify_otp", "chat", String(chatId));
+
+  const linkedUser = await getTelegramChatLink(chatId);
+  let userId = linkedUser?.userId ?? "";
+  const name = linkedUser?.name ?? null;
+
+  if (!userId) {
+    const supabase = createAdminClient();
+    const { data: existingUsers, error: userError } = await supabase
+      .from("app_users")
+      .select("id")
+      .eq("email", email)
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (userError) {
+      throw new Error("Unable to finish Telegram sign-in right now. Please try again.");
+    }
+
+    userId = ((existingUsers ?? [])[0] as { id: string } | undefined)?.id ?? crypto.randomUUID();
+    await upsertAppUser({
+      userId,
+      email,
+      name,
+    });
+  } else {
+    await upsertAppUser({
+      userId,
+      email,
+      name,
+    });
+  }
 
   return {
-    userId: user.id as string,
-    email: (user.email as string) ?? email,
-    name:
-      (user.user_metadata?.full_name as string | undefined) ??
-      (user.user_metadata?.name as string | undefined) ??
-      null,
+    userId,
+    email,
+    name,
   };
 }
 
@@ -183,7 +354,7 @@ async function ensureTelegramAuthenticated(
   if (!parsed && !pendingLogin && isEmail(trimmed)) {
     const email = trimmed.toLowerCase();
     try {
-      await sendOtpEmail(email);
+      await sendTelegramOtp(chatId, email);
       await createTelegramLoginChallenge({
         chatId,
         email,
@@ -193,7 +364,7 @@ async function ensureTelegramAuthenticated(
       });
       await sendTelegramMessage(
         chatId,
-        `📧 Code sent to <b>${email}</b>. Reply with the 6-digit code from your email.`,
+        `📧 Code sent to <b>${email}</b>. Reply with the ${OTP_LENGTH}-digit code from your email.`,
         { parse_mode: "HTML" }
       );
     } catch (error) {
@@ -211,7 +382,7 @@ async function ensureTelegramAuthenticated(
     }
 
     try {
-      await sendOtpEmail(email);
+      await sendTelegramOtp(chatId, email);
       await createTelegramLoginChallenge({
         chatId,
         email,
@@ -221,7 +392,7 @@ async function ensureTelegramAuthenticated(
       });
       await sendTelegramMessage(
         chatId,
-        `📧 Code sent to <b>${email}</b>. Reply with the 6-digit code from your email.`,
+        `📧 Code sent to <b>${email}</b>. Reply with the ${OTP_LENGTH}-digit code from your email.`,
         { parse_mode: "HTML" }
       );
     } catch (error) {
@@ -233,7 +404,7 @@ async function ensureTelegramAuthenticated(
 
   if (pendingLogin && isOtpCode(trimmed) && !parsed) {
     try {
-      const userInfo = await verifyOtpToken(pendingLogin.email, trimmed);
+      const userInfo = await verifyTelegramOtp(chatId, pendingLogin.email, trimmed);
       await linkTelegramChat(chatId, userInfo);
       await setTelegramChatUnlocked(chatId);
       await clearTelegramLoginChallenge(chatId);
@@ -254,13 +425,24 @@ async function ensureTelegramAuthenticated(
   const linkedUser = await getTelegramChatLink(chatId);
   const unlocked = await isTelegramChatUnlocked(chatId);
   if (linkedUser && unlocked) {
+    if (linkedUser.sessionExpiresAt) {
+      const expiresAt = new Date(linkedUser.sessionExpiresAt);
+      const now = new Date();
+      if (!Number.isNaN(expiresAt.getTime()) && expiresAt <= now) {
+        await clearTelegramChatSession(chatId);
+        await sendTelegramMessage(chatId, getTelegramReloginMessage(linkedUser), {
+          parse_mode: "HTML",
+        });
+        return null;
+      }
+    }
     return linkedUser;
   }
 
   if (pendingLogin) {
     await sendTelegramMessage(
       chatId,
-      `Reply with the 6-digit code sent to <b>${pendingLogin.email}</b>.`,
+      `Reply with the ${OTP_LENGTH}-digit code sent to <b>${pendingLogin.email}</b>.`,
       { parse_mode: "HTML" }
     );
     return null;

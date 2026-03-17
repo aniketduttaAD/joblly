@@ -446,6 +446,7 @@ export async function getResumeFileInfo(
 
 export interface TelegramChatLink extends AuthenticatedUserIdentity {
   chatId: number;
+  sessionExpiresAt?: string | null;
 }
 
 export interface TelegramLoginChallenge {
@@ -478,12 +479,14 @@ export async function linkTelegramChat(
   await upsertAppUser(identity);
   const supabase = createAdminClient();
   const now = new Date().toISOString();
+  const sessionExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const { error } = await supabase.from("telegram_chat_links").upsert(
     {
       chat_id: String(chatId),
       user_id: identity.userId,
       email: identity.email,
       name: identity.name ?? null,
+      session_expires_at: sessionExpiresAt,
       updated_at: now,
     },
     { onConflict: "chat_id" }
@@ -505,6 +508,7 @@ export async function getTelegramChatLink(chatId: number): Promise<TelegramChatL
     userId: data.user_id as string,
     email: data.email as string,
     name: data.name as string | null,
+    sessionExpiresAt: (data.session_expires_at as string | null) ?? null,
   };
 }
 

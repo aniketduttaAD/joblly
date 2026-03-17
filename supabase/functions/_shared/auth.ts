@@ -6,6 +6,12 @@ export interface AuthenticatedUserIdentity {
   name?: string | null;
 }
 
+export type AppJwtType = "access" | "refresh";
+
+const ACCESS_COOKIE_NAME = "jobtracker_access";
+const REFRESH_COOKIE_NAME = "jobtracker_refresh";
+const LEGACY_SESSION_COOKIE_NAME = "jobtracker_session";
+
 function getSupabaseUrl(): string {
   return Deno.env.get("SUPABASE_URL") ?? "";
 }
@@ -38,7 +44,7 @@ export function getAppJwtSecret(): string {
   return secret;
 }
 
-function parseCookies(req: Request): Record<string, string> {
+export function parseCookies(req: Request): Record<string, string> {
   const cookieHeader = req.headers.get("cookie") ?? "";
   if (!cookieHeader) return {};
   return Object.fromEntries(
@@ -56,12 +62,13 @@ export function getAppJwtFromRequest(req: Request): string | null {
   }
 
   const cookies = parseCookies(req);
-  const cookieToken = cookies["jobtracker_session"];
+  const cookieToken = cookies[ACCESS_COOKIE_NAME] ?? cookies[LEGACY_SESSION_COOKIE_NAME];
   return cookieToken ?? null;
 }
 
 export async function verifyAppJwt(
-  token: string
+  token: string,
+  expectedType?: AppJwtType
 ): Promise<{ userId: string; email: string } | null> {
   try {
     const parts = token.split(".");
@@ -100,11 +107,15 @@ export async function verifyAppJwt(
       sub?: string;
       email?: string;
       exp?: number;
+      type?: AppJwtType;
     };
     if (!payload.sub || !payload.email) return null;
     if (typeof payload.exp === "number") {
       const now = Math.floor(Date.now() / 1000);
       if (payload.exp <= now) return null;
+    }
+    if (expectedType && payload.type && payload.type !== expectedType) {
+      return null;
     }
     return { userId: payload.sub, email: payload.email };
   } catch {
@@ -118,7 +129,7 @@ export async function getUserFromRequest(req: Request): Promise<AuthenticatedUse
 
   let claims: { userId: string; email: string } | null = null;
   try {
-    claims = await verifyAppJwt(token);
+    claims = await verifyAppJwt(token, "access");
   } catch (error) {
     console.error("getUserFromRequest verifyAppJwt error:", error);
     return null;
@@ -165,4 +176,103 @@ export function isApiAuthorized(req: Request): boolean {
     if (origin.startsWith(siteUrl)) return true;
   }
   return false;
+}
+
+export async function createAppJwt(
+  payload: Record<string, unknown>,
+  expiresInSeconds: number,
+  type: AppJwtType
+): Promise<string> {
+  const header = {
+    alg: "HS256",
+    typ: "JWT",
+  };
+
+  const now = Math.floor(Date.now() / 1000);
+  const fullPayload = {
+    ...payload,
+    type,
+    iat: now,
+    exp: now + expiresInSeconds,
+  };
+
+  const encoder = new TextEncoder();
+  const base64Url = (data: Uint8Array) =>
+    btoa(String.fromCharCode(...data))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+
+  const headerJson = encoder.encode(JSON.stringify(header));
+  const payloadJson = encoder.encode(JSON.stringify(fullPayload));
+
+  const headerB64 = base64Url(headerJson);
+  const payloadB64 = base64Url(payloadJson);
+  const data = encoder.encode(`${headerB64}.${payloadB64}`);
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(getAppJwtSecret()),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, data));
+  const signatureB64 = base64Url(signature);
+
+  return `${headerB64}.${payloadB64}.${signatureB64}`;
+}
+
+function buildCookie(
+  name: string,
+  value: string,
+  options: { maxAgeSeconds?: number; expireNow?: boolean } = {}
+): string {
+  const isProd = Deno.env.get("NODE_ENV") === "production";
+  const parts = [`${name}=${encodeURIComponent(value)}`, "Path=/", "HttpOnly"];
+  if (options.expireNow) {
+    parts.push("Max-Age=0");
+  } else if (typeof options.maxAgeSeconds === "number") {
+    parts.push(`Max-Age=${options.maxAgeSeconds}`);
+  }
+  if (isProd) {
+    parts.push("SameSite=None", "Secure", "Partitioned");
+  } else {
+    parts.push("SameSite=Lax");
+  }
+  return parts.join("; ");
+}
+
+export function createSessionCookies(tokens: {
+  accessToken: string;
+  refreshToken: string;
+}): string[] {
+  const accessCookie = buildCookie(ACCESS_COOKIE_NAME, tokens.accessToken, {
+    maxAgeSeconds: 5 * 60,
+  });
+  const refreshCookie = buildCookie(REFRESH_COOKIE_NAME, tokens.refreshToken, {
+    maxAgeSeconds: 7 * 24 * 60 * 60,
+  });
+  return [accessCookie, refreshCookie];
+}
+
+export function createAccessCookie(accessToken: string): string {
+  return buildCookie(ACCESS_COOKIE_NAME, accessToken, {
+    maxAgeSeconds: 5 * 60,
+  });
+}
+
+export function clearSessionCookies(): string[] {
+  return [
+    buildCookie(ACCESS_COOKIE_NAME, "", { expireNow: true }),
+    buildCookie(REFRESH_COOKIE_NAME, "", { expireNow: true }),
+    buildCookie(LEGACY_SESSION_COOKIE_NAME, "", { expireNow: true }),
+  ];
+}
+
+export function getRefreshTokenFromRequest(req: Request): string | null {
+  const cookies = parseCookies(req);
+  const cookieToken = cookies[REFRESH_COOKIE_NAME] ?? null;
+  return cookieToken ?? null;
 }

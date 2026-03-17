@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleCors, jsonResponse, errorResponse } from "../_shared/cors.ts";
-import { createAdminClient, getAppJwtSecret } from "../_shared/auth.ts";
+import { createAdminClient, createAppJwt, createSessionCookies } from "../_shared/auth.ts";
 import { upsertAppUser } from "../_shared/db.ts";
 import {
   OTP_LENGTH,
@@ -23,61 +23,6 @@ const VERIFY_LIMITS = {
   email: { maxAttempts: 7, windowMinutes: 15, blockMinutes: 30 },
   ip: { maxAttempts: 25, windowMinutes: 15, blockMinutes: 30 },
 } as const;
-
-async function createJwt(
-  payload: Record<string, unknown>,
-  expiresInSeconds: number
-): Promise<string> {
-  const header = {
-    alg: "HS256",
-    typ: "JWT",
-  };
-
-  const now = Math.floor(Date.now() / 1000);
-  const fullPayload = {
-    ...payload,
-    iat: now,
-    exp: now + expiresInSeconds,
-  };
-
-  const encoder = new TextEncoder();
-  const base64Url = (data: Uint8Array) =>
-    btoa(String.fromCharCode(...data))
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "");
-
-  const headerJson = encoder.encode(JSON.stringify(header));
-  const payloadJson = encoder.encode(JSON.stringify(fullPayload));
-
-  const headerB64 = base64Url(headerJson);
-  const payloadB64 = base64Url(payloadJson);
-  const data = encoder.encode(`${headerB64}.${payloadB64}`);
-
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(getAppJwtSecret()),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-
-  const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, data));
-  const signatureB64 = base64Url(signature);
-
-  return `${headerB64}.${payloadB64}.${signatureB64}`;
-}
-
-function createSessionCookie(token: string): string {
-  const isProd = Deno.env.get("NODE_ENV") === "production";
-  const parts = [`jobtracker_session=${token}`, "Path=/", "HttpOnly"];
-  if (isProd) {
-    parts.push("SameSite=None", "Secure", "Partitioned");
-  } else {
-    parts.push("SameSite=Lax");
-  }
-  return parts.join("; ");
-}
 
 Deno.serve(async (req: Request) => {
   const cors = handleCors(req);
@@ -231,14 +176,24 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  let token: string;
+  let accessToken: string;
+  let refreshToken: string;
   try {
-    token = await createJwt(
+    accessToken = await createAppJwt(
       {
         sub: userId,
         email,
       },
-      2 * 60 * 60
+      5 * 60,
+      "access"
+    );
+    refreshToken = await createAppJwt(
+      {
+        sub: userId,
+        email,
+      },
+      7 * 24 * 60 * 60,
+      "refresh"
     );
   } catch (err) {
     console.error("auth-verify-otp jwt error:", err);
@@ -249,11 +204,16 @@ Deno.serve(async (req: Request) => {
     id: userId,
     email,
     name,
-    token,
+    token: accessToken,
   });
 
   const headers = new Headers(response.headers);
-  headers.append("Set-Cookie", createSessionCookie(token));
+  for (const cookie of createSessionCookies({
+    accessToken,
+    refreshToken,
+  })) {
+    headers.append("Set-Cookie", cookie);
+  }
 
   return new Response(response.body, { status: response.status, headers });
 });
