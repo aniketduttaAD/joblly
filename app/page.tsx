@@ -37,6 +37,7 @@ export default function HomePage() {
   const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [totalJobsCount, setTotalJobsCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [searchStatus, setSearchStatus] = useState<JobStatus | "">("");
   const [searchedJobs, setSearchedJobs] = useState<JobRecord[] | null>(null);
@@ -93,17 +94,30 @@ export default function HomePage() {
   const fetchJobs = useCallback(
     async (page: number = 1) => {
       setLoading(true);
+      setLoadError(null);
       try {
         const params = new URLSearchParams();
         params.set("page", String(page));
         params.set("limit", String(PAGE_SIZE));
-        const res = await appFetch(`${sfn("jobs")}?${params.toString()}`);
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 20_000);
+        const res = await appFetch(`${sfn("jobs")}?${params.toString()}`, {
+          signal: controller.signal,
+        }).finally(() => window.clearTimeout(timeoutId));
         const data = await res.json().catch(() => ({}));
         if (res.status === 401) {
           return;
         }
         setJobs(Array.isArray(data.jobs) ? data.jobs : []);
         setTotalJobsCount(typeof data.total === "number" ? data.total : (data.jobs?.length ?? 0));
+      } catch (e) {
+        setLoadError(
+          e instanceof Error && e.name === "AbortError"
+            ? "Request timed out. Please refresh and try again."
+            : e instanceof Error
+              ? e.message
+              : "Failed to load jobs."
+        );
       } finally {
         setLoading(false);
       }
@@ -965,6 +979,18 @@ export default function HomePage() {
           {loading ? (
             <div className="flex min-h-[280px] items-center justify-center py-20">
               <Loader2 className="h-10 w-10 animate-spin text-orange-brand" aria-hidden />
+            </div>
+          ) : loadError ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-6 py-10 text-center sm:px-10">
+              <p className="text-sm font-medium text-red-700">Unable to load jobs</p>
+              <p className="mt-2 text-sm text-red-700/90">{loadError}</p>
+              <button
+                type="button"
+                onClick={() => void fetchJobs(currentPage)}
+                className="mt-4 inline-flex min-h-[44px] items-center justify-center rounded-lg bg-orange-brand px-4 py-2.5 text-sm font-medium text-white hover:bg-orange-dark focus:outline-none focus:ring-2 focus:ring-orange-brand/30"
+              >
+                Retry
+              </button>
             </div>
           ) : baseJobs.length === 0 ? (
             <div className="rounded-xl border border-beige-300 bg-beige-100/50 px-6 py-20 text-center sm:px-10 sm:py-24">

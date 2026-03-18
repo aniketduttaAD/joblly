@@ -1,33 +1,40 @@
 declare const Deno: { env: { get: (key: string) => string | undefined } };
 
-const DEFAULT_ALLOWED_ORIGINS = ["https://joblly.aniketdutta.space"] as const;
-
 function normalizeOrigin(value: string): string {
   return value.trim().replace(/\/$/, "");
 }
 
 function getAllowedOrigins(): string[] {
-  const envList = (Deno.env.get("ALLOWED_ORIGINS") ?? "").trim();
-  if (envList) {
-    return envList.split(",").map(normalizeOrigin).filter(Boolean);
+  const raw = (Deno.env.get("SITE_URL") ?? "").trim();
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        const normalized = parsed
+          .filter((v): v is string => typeof v === "string")
+          .map(normalizeOrigin)
+          .filter((v) => v && v !== "*");
+        return normalized;
+      }
+    } catch {
+      return [];
+    }
   }
 
-  const siteUrl = normalizeOrigin(Deno.env.get("SITE_URL") ?? "");
-  if (siteUrl && siteUrl !== "*") return [siteUrl];
-
-  return [...DEFAULT_ALLOWED_ORIGINS];
+  return [];
 }
 
 function getCorsHeaders(originHeader: string | null): Record<string, string> {
   const origin = normalizeOrigin(originHeader ?? "");
   const allowed = getAllowedOrigins();
-  const allowOrigin = origin && allowed.includes(origin) ? origin : (allowed[0] ?? "");
+  const allowOrigin = origin && allowed.includes(origin) ? origin : "";
 
   return {
     ...(allowOrigin ? { "Access-Control-Allow-Origin": allowOrigin } : {}),
     Vary: "Origin",
     "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-api-key",
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type, x-api-key, x-jobs-api-key",
     "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   };
 }
