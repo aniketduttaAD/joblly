@@ -16,7 +16,10 @@ Rules:
 7. End with "Best regards," followed by the exact candidate name.
 8. Do not output commentary, bullet points, or explanations. Output only the letter.
 9. Use plain, natural language. No hype, no filler, no fake enthusiasm.
-10. Focus on the most relevant overlap between resume and job description.`;
+10. Focus on the most relevant overlap between resume and job description.
+11. Proofread before answering: correct grammar, spacing, and punctuation. Avoid awkward phrasing.
+12. Keep sentences short and direct. Avoid repeating the same idea twice.
+13. If you mention a company/role/project, it must appear in the provided resume text.`;
 }
 
 type JobMetadata = { title?: string; company?: string; location?: string; aboutCompany?: string };
@@ -139,7 +142,7 @@ export async function POST(req: NextRequest) {
     jobSummary ? `JOB METADATA:\n${jobSummary}` : "",
     `PARSED RESUME:\n${resumeContent}`,
     `JOB DESCRIPTION:\n${jobDescription.slice(0, 6000)}`,
-    `TASK:\nWrite a tailored cover letter for this application.\n- Keep it honest and grounded in the resume.\n- Mention the strongest relevant experience and technologies only if they are supported.\n- If the role is senior and the candidate is earlier-career, keep the tone ambitious but realistic.\n- Do not mention missing qualifications explicitly unless necessary.\n- Output only the final cover letter.`,
+    `TASK:\nWrite a tailored cover letter for this application.\n- Keep it honest and grounded in the resume.\n- Prefer specific, verifiable details from the resume (projects, responsibilities, scope). Do not add new facts.\n- If the role is more senior than the resume, acknowledge it subtly through tone (do not claim seniority).\n- Avoid generic lines like "cutting-edge", "excited", "perfect fit", "I am confident".\n- Ensure every paragraph reads naturally with correct grammar.\n- Output only the final cover letter.`,
   ]
     .filter(Boolean)
     .join("\n\n");

@@ -49,6 +49,8 @@ Non-negotiable rules:
 6. Keep answers concise but useful.
 7. Never round 1.5 years up to 15 years. Preserve decimals exactly as provided.
 8. If a fact block says "Candidate experience: 1.5+ years", repeat "1.5+ years" exactly.
+9. Proofread before answering: correct grammar, spacing, and punctuation. Avoid typos.
+10. When you cite a requirement (tool/skill/years), use only phrases explicitly present in the JD context we provide. Do not guess or paraphrase into new proper nouns.
 
 For gap-analysis questions such as missing skills, fit, match, eligibility, strengths, weaknesses, or resume gaps:
 - Start with the main mismatch first.
@@ -478,7 +480,19 @@ export async function POST(req: NextRequest) {
     .filter(Boolean)
     .join("\n");
 
-  const contextPrompt = `JOB METADATA:\n${jobMetadata}\n\nNORMALIZED FACTS:\n${fitFacts}\n\nRESUME CONTENT:\n${resumeContent}\n\nJOB DESCRIPTION:\n${jdContent}\n\nEXPERIENCE SUMMARY:\n${experienceSummary}\n\nUse ONLY the evidence above. Be explicit about gaps, especially years-of-experience mismatches, missing tools, and missing leadership evidence.\n\nWhen answering, always use clear paragraphs and bullets with blank lines between sections.\nIf the question asks about fit, use exactly this structure:\n\nVerdict:\n- <one plain conclusion sentence>\n\nStrong matches:\n- <bullet 1>\n\nGaps or concerns:\n- <bullet 1>\n\nWhat to emphasize anyway:\n- <bullet 1>`;
+  const jdQuotedFacts = [
+    inferredRequirements.requiredYears ? `JD says required experience: "${inferredRequirements.requiredYears}"` : "",
+    inferredRequirements.requiredSkills.length
+      ? `JD explicitly mentions skills/tools: ${inferredRequirements.requiredSkills
+          .slice(0, 24)
+          .map((s) => `"${s}"`)
+          .join(", ")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const contextPrompt = `JOB METADATA:\n${jobMetadata}\n\nNORMALIZED FACTS:\n${fitFacts}\n\nJD QUOTED FACTS (use these exact phrases; do not invent new requirement names):\n${jdQuotedFacts || "—"}\n\nRESUME CONTENT:\n${resumeContent}\n\nJOB DESCRIPTION:\n${jdContent}\n\nEXPERIENCE SUMMARY:\n${experienceSummary}\n\nUse ONLY the evidence above. Be explicit about gaps, especially years-of-experience mismatches, missing tools, and missing leadership evidence.\n\nWhen answering, always use clear paragraphs and bullets with blank lines between sections.\n\nIf the question is about fit/match/eligibility, you MUST use exactly this structure and headings:\n\nVerdict:\n- <one plain conclusion sentence>\n\nStrong matches:\n- <bullet 1>\n\nGaps or concerns:\n- <bullet 1>\n\nWhat to emphasize anyway:\n- <bullet 1>\n\nFormatting rules:\n- Each bullet must be a complete sentence.\n- Do not include extra headings or sections.\n- Do not output markdown code fences.`;
 
   const userPrompt = `QUESTION:\n${question}${extraInstructions ? `\n\nEXTRA INSTRUCTIONS (follow, but do not break formatting rules):\n${extraInstructions}` : ""}`;
 
