@@ -38,39 +38,42 @@ async function fetchWithRefresh(
   init: RequestInit = {}
 ): Promise<Response> {
   const response = await fetch(input, { ...withAccessToken(init), credentials: "include" });
-  if (response.status !== 401 || input === sfn("auth-refresh")) {
+  if (response.status !== 401 || input === sfn("auth-session")) {
     return response;
   }
 
-  const refreshResponse = await fetch(sfn("auth-refresh"), {
-    method: "POST",
+  const sessionResponse = await fetch(sfn("auth-session"), {
+    cache: "no-store",
     credentials: "include",
   });
-
-  if (!refreshResponse.ok) {
+  if (!sessionResponse.ok) {
     storeAccessToken(null);
     return response;
   }
-
-  const refreshData = (await refreshResponse.json().catch(() => ({}))) as { token?: string };
-  if (typeof refreshData.token === "string" && refreshData.token) {
-    storeAccessToken(refreshData.token);
-  }
+  const sessionData = (await sessionResponse.json().catch(() => ({}))) as { token?: string };
+  if (typeof sessionData.token === "string" && sessionData.token)
+    storeAccessToken(sessionData.token);
 
   return fetch(input, { ...withAccessToken(init), credentials: "include" });
 }
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
   try {
-    const response = await fetchWithRefresh(sfn("auth-me"), {
+    const response = await fetchWithRefresh(sfn("auth-session"), {
       cache: "no-store",
     });
     if (!response.ok) {
       return null;
     }
 
-    const data = (await response.json()) as { id?: string; email?: string; name?: string };
+    const data = (await response.json()) as {
+      id?: string;
+      email?: string;
+      name?: string;
+      token?: string;
+    };
     if (!data.id) return null;
+    if (typeof data.token === "string" && data.token) storeAccessToken(data.token);
     return { id: data.id, email: data.email, name: data.name };
   } catch {
     return null;

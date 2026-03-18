@@ -311,8 +311,15 @@ export default function HomePage() {
         }
       } else if (res.ok) {
         setParseResult(data);
-        const record = data.record as Partial<JobRecord>;
-        setEditedFields(record || {});
+        const record = (data?.record ?? data?.parsed ?? {}) as Partial<JobRecord>;
+        setEditedFields({
+          ...record,
+          techStack: Array.isArray(record.techStack) ? record.techStack : [],
+          techStackNormalized: (record.techStackNormalized ??
+            null) as JobRecord["techStackNormalized"],
+          collaborationTools: (record.collaborationTools ??
+            null) as JobRecord["collaborationTools"],
+        });
         setEditedParseJson(JSON.stringify(data, null, 2));
         setShowJsonEditor(false);
       } else {

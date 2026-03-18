@@ -202,6 +202,22 @@ export function AppAuthProvider({ children }: { children: ReactNode }) {
   const lastRevalidateRef = useRef<number>(0);
   const REVALIDATE_THROTTLE_MS = 60_000;
 
+  const fetchSessionUserFallback = useCallback(async (): Promise<AuthUser | null> => {
+    try {
+      const res = await fetch(sfn("auth-session"), { cache: "no-store", credentials: "include" });
+      if (!res.ok) return null;
+      const data = (await res.json().catch(() => null)) as null | {
+        id?: string;
+        email?: string;
+        name?: string | null;
+      };
+      if (!data?.id) return null;
+      return { id: data.id, email: data.email, name: data.name ?? undefined };
+    } catch {
+      return null;
+    }
+  }, []);
+
   const revalidateSession = useCallback(async (): Promise<boolean> => {
     if (!authRequired) {
       setAuthenticated(true);
@@ -213,7 +229,7 @@ export function AppAuthProvider({ children }: { children: ReactNode }) {
     }
     lastRevalidateRef.current = now;
 
-    const nextUser = await getCurrentUser();
+    const nextUser = (await getCurrentUser()) ?? (await fetchSessionUserFallback());
     if (!nextUser) {
       setAuthenticated(false);
       setUser(null);
@@ -241,7 +257,7 @@ export function AppAuthProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        const nextUser = await getCurrentUser();
+        const nextUser = (await getCurrentUser()) ?? (await fetchSessionUserFallback());
         if (cancelled) return;
 
         if (nextUser) {
