@@ -241,10 +241,6 @@ export async function deleteJobs(ids: string[], ownerId: string): Promise<number
   return results.filter(Boolean).length;
 }
 
-/**
- * Search jobs by title and/or company (FTS) with optional status filter.
- * When q is empty but status is set, returns jobs filtered by status only (uses owner_id + status index).
- */
 export async function searchJobsByTitleCompany(
   ownerId: string,
   q: string,
@@ -266,17 +262,19 @@ export async function searchJobsByTitleCompany(
     return { jobs, total: count ?? jobs.length };
   }
 
-  const escaped = trimmed.replace(/[%_]/g, "\\$&");
-  const pattern = `%${escaped}%`;
-
   let query = supabase
     .from("jobs")
     .select("*", { count: "exact" })
     .eq("owner_id", ownerId)
-    .or(
-      [`title.ilike.${pattern}`, `company.ilike.${pattern}`, `location.ilike.${pattern}`].join(",")
-    )
     .order("applied_at", { ascending: false });
+  const terms = trimmed.split(/\s+/).filter(Boolean).slice(0, 8);
+  for (const rawTerm of terms) {
+    const escaped = rawTerm.replace(/[%_]/g, "\\$&");
+    const pattern = `%${escaped}%`;
+    query = query.or(
+      [`title.ilike.${pattern}`, `company.ilike.${pattern}`, `location.ilike.${pattern}`].join(",")
+    );
+  }
 
   if (status) {
     query = query.eq("status", status);
