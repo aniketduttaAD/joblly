@@ -1,21 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import {
-  Search,
-  Bookmark,
-  RefreshCw,
-  MapPin,
-  Eye,
-  EyeOff,
-  ExternalLink,
-  Briefcase,
-  Loader2,
-  MessageCircle,
-  Key,
-} from "lucide-react";
+import { Search, RefreshCw, MapPin, Eye, EyeOff, ExternalLink, Key } from "lucide-react";
 import { Button } from "@/app/job/search/components/ui/button";
-import { ChatBottomSheet } from "@/app/components/chat-bottom-sheet";
 import { Card, CardContent } from "@/app/job/search/components/ui/card";
 import { Input } from "@/app/job/search/components/ui/input";
 import {
@@ -23,7 +10,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
   DialogDescription,
 } from "@/app/job/search/components/ui/dialog";
 import {
@@ -31,10 +17,6 @@ import {
   setJobsApiKey,
   removeJobsApiKey,
   validateJobsKey,
-  getSavedJobs,
-  saveJob,
-  removeSavedJob,
-  isJobSaved,
   fetchJobsFromApi,
   formatJobDate,
   sortJobs,
@@ -44,8 +26,6 @@ import {
   type JobFilters,
 } from "@/app/job/search/lib/jobs-api";
 import { cn } from "@/app/job/search/lib/utils";
-import { useAppAuth } from "@/app/components/app-auth-provider";
-import { sfn } from "@/lib/supabase-api";
 
 const LOCATIONS = [
   "",
@@ -75,7 +55,6 @@ const POPULAR_KEYWORDS = [
 ];
 
 export default function JobsExplorerPage() {
-  const { appFetch } = useAppAuth();
   const [keyword, setKeyword] = useState("");
   const [location, setLocation] = useState("");
   const [jobType, setJobType] = useState("");
@@ -87,29 +66,13 @@ export default function JobsExplorerPage() {
   const [lastFetchTime, setLastFetchTime] = useState<Date | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [resultsSearch, setResultsSearch] = useState("");
-  const [savedCount, setSavedCount] = useState(0);
   const [notification, setNotification] = useState<{
     message: string;
     type: "success" | "error" | "info";
   } | null>(null);
 
-  const PAGE_SIZE = 20;
-  const [currentPage, setCurrentPage] = useState(1);
-
   const [jobModalOpen, setJobModalOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState<JobListing | null>(null);
-  const [savedModalOpen, setSavedModalOpen] = useState(false);
-  const [addToTrackerLoadingId, setAddToTrackerLoadingId] = useState<string | null>(null);
-  const [addToTrackerError, setAddToTrackerError] = useState<string | null>(null);
-  const [chatSheetOpen, setChatSheetOpen] = useState(false);
-  const [chatSheetJdText, setChatSheetJdText] = useState<string | null>(null);
-  const [chatSheetJobMetadata, setChatSheetJobMetadata] = useState<{
-    title?: string;
-    company?: string;
-    location?: string;
-    aboutCompany?: string;
-  } | null>(null);
 
   const [jobsApiKeyInput, setJobsApiKeyInput] = useState("");
   const [showJobsApiKey, setShowJobsApiKey] = useState(false);
@@ -119,10 +82,6 @@ export default function JobsExplorerPage() {
   useEffect(() => {
     setJobsApiKeyInput(getJobsApiKey() || "");
   }, []);
-
-  useEffect(() => {
-    setSavedCount(getSavedJobs().length);
-  }, [jobModalOpen, savedModalOpen]);
 
   const handleSaveJobsKey = () => {
     const trimmed = jobsApiKeyInput.trim();
@@ -211,57 +170,15 @@ export default function JobsExplorerPage() {
     }
   }, [sortBy, cachedJobs, lastFilters]);
 
-  const displayedJobs = resultsSearch.trim()
-    ? jobs.filter((job) => {
-        const q = resultsSearch.toLowerCase();
-        const text = [
-          job.title,
-          job.company,
-          job.location,
-          job.job_description,
-          job.job_type,
-          job.experience,
-          job.role_and_responsibility ?? "",
-          job.education_and_skills ?? "",
-          job.about_company ?? "",
-        ]
-          .join(" ")
-          .toLowerCase();
-        return q.split(/\s+/).every((term) => text.includes(term));
-      })
-    : jobs;
-
-  const totalPages = Math.max(1, Math.ceil(displayedJobs.length / PAGE_SIZE));
-  const currentPageSafe = Math.min(currentPage, totalPages);
-  const startIndex = (currentPageSafe - 1) * PAGE_SIZE;
-  const endIndex = startIndex + PAGE_SIZE;
-  const paginatedJobs = displayedJobs.slice(startIndex, endIndex);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [resultsSearch, sortBy, location, jobType, experience]);
-
   const openJobDetail = (job: JobListing) => {
     setSelectedJob(job);
     setJobModalOpen(true);
-  };
-
-  const toggleSave = (job: JobListing) => {
-    if (isJobSaved(job.id)) {
-      removeSavedJob(job.id);
-      showNotify("Job removed from saved list", "info");
-    } else {
-      saveJob(job);
-      showNotify("Job saved", "success");
-    }
-    setSavedCount(getSavedJobs().length);
   };
 
   const refresh = () => {
     clearJobsCache();
     setCachedJobs([]);
     setLastFilters(null);
-    setResultsSearch("");
     runSearch(true);
     showNotify("Jobs refreshed", "success");
   };
@@ -274,89 +191,6 @@ export default function JobsExplorerPage() {
     if (d < 86400000) return `${Math.floor(d / 3600000)}h ago`;
     return `${Math.floor(d / 86400000)}d ago`;
   };
-
-  const savedJobs = getSavedJobs();
-
-  const handleAddToTracker = useCallback(
-    async (job: JobListing) => {
-      setAddToTrackerError(null);
-      setAddToTrackerLoadingId(job.id);
-      try {
-        const body = {
-          title: job.title,
-          company: job.company,
-          location: job.location,
-          role: job.title,
-          experience: job.experience ?? "",
-          jobType: job.job_type ?? "",
-          jdRaw: job.job_description,
-          education: job.education_and_skills ?? undefined,
-          source: job.apply_link ? `Jobs API (${job.apply_link})` : "Jobs API explorer",
-          postedAt: job.posted_date,
-          techStack: [] as string[],
-        };
-
-        try {
-          const resExisting = await appFetch(sfn("jobs", { page: 1, limit: 100 }));
-          const dataExisting = await resExisting.json().catch(() => ({}));
-          if (Array.isArray((dataExisting as { jobs?: unknown }).jobs)) {
-            const existingJobs = (
-              dataExisting as {
-                jobs: { title: string; company: string; techStack?: string[] }[];
-              }
-            ).jobs;
-            const incomingTitle = job.title.trim().toLowerCase();
-            const incomingCompany = job.company.trim().toLowerCase();
-            const incomingTech = (body.techStack ?? []).slice().sort();
-            const incomingTechKey = incomingTech.join("|").toLowerCase();
-
-            const isDuplicate = existingJobs.some((j) => {
-              const titleMatch =
-                (j.title ?? "").trim().toLowerCase() === incomingTitle &&
-                (j.company ?? "").trim().toLowerCase() === incomingCompany;
-              if (!titleMatch) return false;
-              const existingTech = (Array.isArray(j.techStack) ? j.techStack : []).slice().sort();
-              const existingTechKey = existingTech.join("|").toLowerCase();
-              return existingTechKey === incomingTechKey;
-            });
-
-            if (isDuplicate) {
-              showNotify("Already in tracker (same title, company and tech stack)", "info");
-              setAddToTrackerLoadingId(null);
-              return;
-            }
-          }
-        } catch {}
-
-        const res = await appFetch(sfn("jobs"), {
-          method: "POST",
-          body: JSON.stringify(body),
-        });
-        const data = await res.json().catch(() => ({}));
-
-        if (res.status === 401) {
-          setAddToTrackerError("Sign in on the main tracker page before adding jobs.");
-          return;
-        }
-
-        if (!res.ok) {
-          const message =
-            (data as { error?: string; detail?: string }).error ??
-            (data as { error?: string; detail?: string }).detail ??
-            "Failed to add job to tracker";
-          setAddToTrackerError(message);
-          return;
-        }
-
-        showNotify("Job added to tracker", "success");
-      } catch {
-        setAddToTrackerError("Failed to add job to tracker");
-      } finally {
-        setAddToTrackerLoadingId(null);
-      }
-    },
-    [appFetch, showNotify]
-  );
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -537,40 +371,18 @@ export default function JobsExplorerPage() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="font-medium text-foreground">
-                {displayedJobs.length} job{displayedJobs.length !== 1 ? "s" : ""} found
+                {jobs.length} job{jobs.length !== 1 ? "s" : ""} found
               </h3>
               <p className="text-sm text-muted-foreground">
                 Last updated: {lastFetchTime ? lastFetchTime.toLocaleTimeString() : "Never"}
                 {lastFetchTime && <span className="ml-1">({timeAgo(lastFetchTime)})</span>}
               </p>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
-                <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
-                Refresh
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setSavedModalOpen(true)}>
-                <Bookmark className="mr-2 h-4 w-4" />
-                Saved{savedCount > 0 ? ` (${savedCount})` : ""}
-              </Button>
-            </div>
+            <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
+              <RefreshCw className={cn("mr-2 h-4 w-4", loading && "animate-spin")} />
+              Refresh
+            </Button>
           </div>
-
-          {jobs.length > 0 && (
-            <div className="flex gap-2 items-center">
-              <Input
-                placeholder="Search within results..."
-                value={resultsSearch}
-                onChange={(e) => setResultsSearch(e.target.value)}
-                className="max-w-xs"
-              />
-              {resultsSearch && (
-                <span className="text-sm text-muted-foreground">
-                  Showing {displayedJobs.length} of {jobs.length}
-                </span>
-              )}
-            </div>
-          )}
 
           {error && (
             <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 flex items-center gap-2 text-destructive">
@@ -585,7 +397,7 @@ export default function JobsExplorerPage() {
             </div>
           )}
 
-          {!loading && displayedJobs.length === 0 && !error && (
+          {!loading && jobs.length === 0 && !error && (
             <Card>
               <CardContent className="py-12 text-center text-muted-foreground">
                 <Search className="mx-auto h-10 w-10 mb-2 opacity-50" />
@@ -595,70 +407,16 @@ export default function JobsExplorerPage() {
             </Card>
           )}
 
-          {!loading && displayedJobs.length > 0 && (
-            <>
-              <div className="flex items-center justify-between text-sm text-muted-foreground">
-                <span>
-                  Showing{" "}
-                  {displayedJobs.length === 0
-                    ? 0
-                    : `${startIndex + 1}-${Math.min(endIndex, displayedJobs.length)}`}{" "}
-                  of {displayedJobs.length} job
-                  {displayedJobs.length !== 1 ? "s" : ""}
-                </span>
-                {totalPages > 1 && (
-                  <span>
-                    Page {currentPageSafe} of {totalPages}
-                  </span>
-                )}
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {paginatedJobs.map((job, index) => (
-                  <JobCard
-                    key={`${job.id ?? "job"}-${startIndex + index}`}
-                    job={job}
-                    isSaved={isJobSaved(job.id)}
-                    onView={() => openJobDetail(job)}
-                    onToggleSave={() => toggleSave(job)}
-                    onOpenChat={() => {
-                      setChatSheetJdText(job.job_description ?? null);
-                      setChatSheetJobMetadata({
-                        title: job.title,
-                        company: job.company,
-                        location: job.location,
-                        aboutCompany: job.about_company ?? undefined,
-                      });
-                      setChatSheetOpen(true);
-                    }}
-                  />
-                ))}
-              </div>
-
-              {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-3 pt-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={currentPageSafe === 1}
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  >
-                    Previous
-                  </Button>
-                  <span className="text-xs text-muted-foreground">
-                    Page {currentPageSafe} of {totalPages}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={currentPageSafe === totalPages}
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  >
-                    Next
-                  </Button>
-                </div>
-              )}
-            </>
+          {!loading && jobs.length > 0 && (
+            <div className="space-y-2">
+              {jobs.map((job, index) => (
+                <JobCard
+                  key={`${job.id ?? "job"}-${index}`}
+                  job={job}
+                  onView={() => openJobDetail(job)}
+                />
+              ))}
+            </div>
           )}
         </section>
 
@@ -679,252 +437,139 @@ export default function JobsExplorerPage() {
 
       {/* Job detail modal */}
       <Dialog open={jobModalOpen} onOpenChange={setJobModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl w-full p-0 overflow-hidden rounded-2xl">
           {selectedJob && (
-            <>
-              <DialogHeader>
-                <DialogTitle>{selectedJob.title}</DialogTitle>
-                <DialogDescription>{selectedJob.company}</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 text-sm">
-                <p>
-                  <strong>Location:</strong> {selectedJob.location}
-                </p>
-                <p>
-                  <strong>Job type:</strong> {selectedJob.job_type}
-                </p>
-                <p>
-                  <strong>Experience:</strong> {selectedJob.experience}
-                </p>
-                <p>
-                  <strong>Posted:</strong> {formatJobDate(selectedJob.posted_date)}
-                </p>
+            <div className="flex max-h-[80vh] flex-col bg-beige-50">
+              <div className="flex-1 overflow-y-auto overscroll-contain p-6 space-y-4 text-sm">
+                <DialogHeader className="px-0">
+                  <DialogTitle className="text-lg font-semibold text-stone-800">
+                    {selectedJob.title}
+                  </DialogTitle>
+                  <DialogDescription className="text-sm text-stone-600">
+                    {selectedJob.company}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-1 text-xs text-stone-600">
+                  <p className="flex items-center gap-1">
+                    <MapPin className="h-3 w-3" />
+                    <span>{selectedJob.location}</span>
+                  </p>
+                  <p>
+                    {selectedJob.job_type && <span>{selectedJob.job_type}</span>}
+                    {selectedJob.experience && selectedJob.job_type && <span> · </span>}
+                    {selectedJob.experience && <span>{selectedJob.experience}</span>}
+                  </p>
+                  <p>Posted {formatJobDate(selectedJob.posted_date)}</p>
+                </div>
                 {selectedJob.about_company && (
                   <div>
-                    <h4 className="font-medium mb-1">About company</h4>
-                    <p className="text-muted-foreground whitespace-pre-wrap">
+                    <h4 className="mb-1 text-sm font-semibold text-stone-800">About company</h4>
+                    <p className="text-sm text-stone-700 whitespace-pre-wrap">
                       {selectedJob.about_company}
                     </p>
                   </div>
                 )}
                 <div>
-                  <h4 className="font-medium mb-1">Description</h4>
-                  <p className="text-muted-foreground whitespace-pre-wrap">
+                  <h4 className="mb-1 text-sm font-semibold text-stone-800">Description</h4>
+                  <p className="text-sm text-stone-700 whitespace-pre-wrap">
                     {selectedJob.job_description}
                   </p>
                 </div>
                 {selectedJob.role_and_responsibility && (
                   <div>
-                    <h4 className="font-medium mb-1">Roles & responsibilities</h4>
-                    <p className="text-muted-foreground whitespace-pre-wrap">
+                    <h4 className="mb-1 text-sm font-semibold text-stone-800">
+                      Roles & responsibilities
+                    </h4>
+                    <p className="text-sm text-stone-700 whitespace-pre-wrap">
                       {selectedJob.role_and_responsibility}
                     </p>
                   </div>
                 )}
                 {selectedJob.education_and_skills && (
                   <div>
-                    <h4 className="font-medium mb-1">Education & skills</h4>
-                    <p className="text-muted-foreground whitespace-pre-wrap">
+                    <h4 className="mb-1 text-sm font-semibold text-stone-800">
+                      Education & skills
+                    </h4>
+                    <p className="text-sm text-stone-700 whitespace-pre-wrap">
                       {selectedJob.education_and_skills}
                     </p>
                   </div>
                 )}
-                {addToTrackerError && <p className="text-xs text-red-600">{addToTrackerError}</p>}
               </div>
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setJobModalOpen(false);
-                    setChatSheetJdText(selectedJob.job_description ?? null);
-                    setChatSheetJobMetadata({
-                      title: selectedJob.title,
-                      company: selectedJob.company,
-                      location: selectedJob.location,
-                      aboutCompany: selectedJob.about_company ?? undefined,
-                    });
-                    setChatSheetOpen(true);
-                  }}
-                >
-                  <MessageCircle className="mr-2 h-4 w-4" />
-                  Chat with AI
-                </Button>
-                <Button
-                  variant={isJobSaved(selectedJob.id) ? "secondary" : "default"}
-                  onClick={() => toggleSave(selectedJob)}
-                >
-                  <Bookmark className="mr-2 h-4 w-4" />
-                  {isJobSaved(selectedJob.id) ? "Remove from saved" : "Save job"}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => handleAddToTracker(selectedJob)}
-                  disabled={addToTrackerLoadingId === selectedJob.id}
-                >
-                  {addToTrackerLoadingId === selectedJob.id ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Briefcase className="mr-2 h-4 w-4" />
-                  )}
-                  Add to tracker
-                </Button>
-                {selectedJob.apply_link && (
-                  <a href={selectedJob.apply_link} target="_blank" rel="noopener noreferrer">
-                    <Button variant="default">
+              {selectedJob.apply_link && (
+                <div className="flex shrink-0 items-center justify-end gap-3 border-t border-beige-300 bg-beige-50 px-4 py-3 sm:px-6 sm:py-4">
+                  <a
+                    href={selectedJob.apply_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full sm:w-auto"
+                  >
+                    <Button className="w-full min-w-[160px]">
                       <ExternalLink className="mr-2 h-4 w-4" />
                       Apply now
                     </Button>
                   </a>
-                )}
-              </DialogFooter>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Saved jobs modal */}
-      <Dialog open={savedModalOpen} onOpenChange={setSavedModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Bookmark className="h-5 w-5" />
-              Saved jobs
-            </DialogTitle>
-          </DialogHeader>
-          {savedJobs.length === 0 ? (
-            <p className="text-muted-foreground py-4">
-              No saved jobs yet. Save jobs from the list to see them here.
-            </p>
-          ) : (
-            <div className="grid gap-2 max-h-[60vh] overflow-y-auto">
-              {savedJobs.map((job, index) => (
-                <Card
-                  key={`${job.id ?? "job"}-${index}`}
-                  className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => {
-                    setSelectedJob(job);
-                    setSavedModalOpen(false);
-                    setJobModalOpen(true);
-                  }}
-                >
-                  <CardContent className="p-4 flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-medium">{job.title}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {job.company} · {job.location}
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openJobDetail(job);
-                        setSavedModalOpen(false);
-                      }}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
+                </div>
+              )}
             </div>
           )}
         </DialogContent>
       </Dialog>
-
-      <ChatBottomSheet
-        open={chatSheetOpen}
-        onClose={() => {
-          setChatSheetOpen(false);
-          setChatSheetJdText(null);
-          setChatSheetJobMetadata(null);
-        }}
-        initialJdText={chatSheetJdText ?? undefined}
-        jobMetadata={chatSheetJobMetadata ?? undefined}
-      />
     </div>
   );
 }
 
-function JobCard({
-  job,
-  isSaved,
-  onView,
-  onToggleSave,
-  onOpenChat,
-}: {
-  job: JobListing;
-  isSaved: boolean;
-  onView: () => void;
-  onToggleSave: () => void;
-  onOpenChat: () => void;
-}) {
+function JobCard({ job, onView }: { job: JobListing; onView: () => void }) {
   return (
-    <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={onView}>
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <div className="flex-1 min-w-0">
-            <h3 className="font-medium text-foreground truncate">{job.title}</h3>
-            <p className="text-sm text-muted-foreground truncate">{job.company}</p>
-            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
-              <MapPin className="h-3 w-3 shrink-0" />
-              <span className="truncate">{job.location}</span>
+    <Card
+      className="cursor-pointer rounded-xl border border-beige-300 bg-white hover:shadow-md transition-shadow"
+      onClick={onView}
+    >
+      <CardContent className="p-5 flex items-center justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="mb-2">
+            <h3 className="font-semibold text-base md:text-lg text-stone-800 leading-tight truncate">
+              {job.title}
+            </h3>
+            <p className="text-sm md:text-base text-stone-600 truncate">{job.company}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs md:text-sm text-stone-600">
+            <span className="inline-flex items-center gap-1">
+              <MapPin className="h-4 w-4 shrink-0 text-stone-500" />
+              <span className="truncate max-w-[200px] sm:max-w-[260px]">{job.location}</span>
+            </span>
+            {job.job_type && (
+              <span className="inline-flex items-center rounded-full bg-beige-100 px-3 py-0.5 text-[11px] md:text-xs">
+                {job.job_type}
+              </span>
+            )}
+            {job.experience && (
+              <span className="inline-flex items-center rounded-full bg-beige-100 px-3 py-0.5 text-[11px] md:text-xs">
+                {job.experience}
+              </span>
+            )}
+          </div>
+          {job.job_description && (
+            <p className="mt-2 text-xs md:text-sm text-stone-700 line-clamp-2">
+              {truncateText(job.job_description, 160)}
             </p>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleSave();
-            }}
-            title={isSaved ? "Remove from saved" : "Save job"}
-          >
-            <Bookmark className={cn("h-4 w-4", isSaved && "fill-primary text-primary")} />
-          </Button>
+          )}
+          <p className="mt-2 text-[11px] md:text-xs text-stone-500">
+            Posted {formatJobDate(job.posted_date)}
+          </p>
         </div>
-        <div className="flex flex-wrap gap-1 mb-2">
-          <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs">
-            {job.job_type}
-          </span>
-          <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs">
-            {job.experience}
-          </span>
-        </div>
-        <p className="text-sm text-muted-foreground line-clamp-2 mb-2">
-          {truncateText(job.job_description, 120)}
-        </p>
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>Posted {formatJobDate(job.posted_date)}</span>
-          <div className="flex flex-col gap-1 items-end">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={(e) => {
-                e.stopPropagation();
-                onView();
-              }}
-            >
-              <Eye className="mr-1 h-3 w-3" />
-              View details
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenChat();
-              }}
-            >
-              <MessageCircle className="mr-1 h-3 w-3" />
-              Chat with AI
-            </Button>
-          </div>
-        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 md:h-10 px-3 md:px-4 text-xs md:text-sm shrink-0"
+          onClick={(e) => {
+            e.stopPropagation();
+            onView();
+          }}
+        >
+          <Eye className="mr-2 h-4 w-4" />
+          View
+        </Button>
       </CardContent>
     </Card>
   );

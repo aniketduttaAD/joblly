@@ -239,7 +239,7 @@ export function AppAuthProvider({ children }: { children: ReactNode }) {
     setAuthenticated(true);
     setUser(nextUser);
     return true;
-  }, [authRequired, authenticated]);
+  }, [authRequired, authenticated, fetchSessionUserFallback]);
 
   const appFetch = useCallback<AuthContextValue["appFetch"]>(
     async (input, init = {}) => {
@@ -275,7 +275,7 @@ export function AppAuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [fetchSessionUserFallback]);
 
   useEffect(() => {
     if (!ready || !authRequired || authLoading || authStep === "otp") return;
