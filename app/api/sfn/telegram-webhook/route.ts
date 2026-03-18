@@ -282,7 +282,7 @@ async function ensureTelegramAuthenticated(chatId: number, text: string) {
   const parsed = parseCommand(trimmed);
   const pendingLogin = await getTelegramLoginChallenge(chatId);
 
-  if (parsed?.command === "logout" || parsed?.command === "lock") {
+  if (parsed?.command === "logout") {
     await clearTelegramChatSession(chatId);
     await clearTelegramLoginChallenge(chatId);
     const linkedUser = await getTelegramChatLink(chatId);
@@ -415,7 +415,10 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
         );
         return;
       }
-      const results = await searchJobsByTitleCompany(linkedUser.userId, query);
+      const results = await searchJobsByTitleCompany(linkedUser.userId, query, undefined, {
+        limit: 20,
+        offset: 0,
+      });
       if (results.jobs.length === 0) {
         await sendTelegramMessage(chatId, `No jobs found for "${query}".`);
         return;
@@ -480,7 +483,7 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
 
   const parsed = parseCommand(text);
   if (!parsed) {
-    await sendTelegramMessage(chatId, "Send /help for commands.");
+    await sendTelegramMessage(chatId, "Send /help for available commands.");
     return;
   }
   const { command, args } = parsed;
@@ -493,7 +496,6 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
 
     case "login":
     case "logout":
-    case "lock":
       return;
 
     case "list": {
@@ -520,21 +522,6 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
       );
       return;
 
-    case "job": {
-      const id = args[0]?.trim();
-      if (!id) {
-        await sendTelegramMessage(chatId, "Usage: /job &lt;id&gt;");
-        return;
-      }
-      const job = await getJob(id, linkedUser.userId);
-      if (!job) {
-        await sendTelegramMessage(chatId, "Job not found.");
-        return;
-      }
-      await sendTelegramMessage(chatId, formatJobFull(job), { parse_mode: "HTML" });
-      return;
-    }
-
     case "add":
       pendingAddByChat.set(chatId, Date.now());
       await sendTelegramMessage(
@@ -543,66 +530,8 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
       );
       return;
 
-    case "delete": {
-      const id = args[0]?.trim();
-      if (!id) {
-        await sendTelegramMessage(chatId, "Usage: /delete &lt;id&gt;");
-        return;
-      }
-      const ok = await deleteJobWithCheck(id, linkedUser.userId);
-      await sendTelegramMessage(chatId, ok ? "✅ Deleted." : "Job not found.");
-      return;
-    }
-
-    case "delete_bulk": {
-      const ids = args.map((a) => a.trim()).filter(Boolean);
-      if (ids.length === 0) {
-        await sendTelegramMessage(chatId, "Usage: /delete_bulk &lt;id1&gt; &lt;id2&gt; …");
-        return;
-      }
-      let removed = 0;
-      for (const id of ids) {
-        if (await deleteJobWithCheck(id, linkedUser.userId)) removed++;
-      }
-      await sendTelegramMessage(
-        chatId,
-        removed === 0
-          ? "No matching jobs were found for those ids."
-          : `✅ Deleted ${removed} job(s).`
-      );
-      return;
-    }
-
-    case "status": {
-      const id = args[0]?.trim();
-      const status = args[1]?.trim()?.toLowerCase();
-      if (!id || !status) {
-        await sendTelegramMessage(
-          chatId,
-          "Usage: /status &lt;id&gt; &lt;status&gt;\nStatus: applied, screening, interview, offer, rejected, withdrawn"
-        );
-        return;
-      }
-      if (!VALID_STATUSES.includes(status as JobStatus)) {
-        await sendTelegramMessage(
-          chatId,
-          `Invalid status. Use one of: ${VALID_STATUSES.join(", ")}`
-        );
-        return;
-      }
-      const updated = await updateJob(id, linkedUser.userId, { status: status as JobStatus });
-      if (!updated) {
-        await sendTelegramMessage(chatId, "Job not found.");
-        return;
-      }
-      await sendTelegramMessage(chatId, `✅ Status updated to <b>${status}</b>.`, {
-        parse_mode: "HTML",
-      });
-      return;
-    }
-
     default:
-      await sendTelegramMessage(chatId, "Unknown command. Send /help for usage.");
+      await sendTelegramMessage(chatId, "Unknown command. Send /help for available commands.");
   }
 }
 

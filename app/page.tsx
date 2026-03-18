@@ -41,6 +41,7 @@ export default function HomePage() {
   const [search, setSearch] = useState("");
   const [searchStatus, setSearchStatus] = useState<JobStatus | "">("");
   const [searchedJobs, setSearchedJobs] = useState<JobRecord[] | null>(null);
+  const [searchedTotal, setSearchedTotal] = useState<number>(0);
   const [searchLoading, setSearchLoading] = useState(false);
   const [stats, setStats] = useState<{
     total: number;
@@ -165,6 +166,7 @@ export default function HomePage() {
     const statusFilter = searchStatus || undefined;
     if (!q && !statusFilter) {
       setSearchedJobs(null);
+      setSearchedTotal(0);
       setSearchLoading(false);
       return;
     }
@@ -175,24 +177,33 @@ export default function HomePage() {
     const timeoutId = window.setTimeout(() => {
       const runSearch = async () => {
         try {
+          const limit = PAGE_SIZE;
+          const offset = Math.max(0, (currentPage - 1) * PAGE_SIZE);
           const params = new URLSearchParams();
           if (q) params.set("q", q);
           if (statusFilter) params.set("status", statusFilter);
+          params.set("limit", String(limit));
+          params.set("offset", String(offset));
 
           const res = await appFetch(`${sfn("jobs-search")}?${params.toString()}`);
           const data = await res.json().catch(() => ({}));
           if (cancelled) return;
           if (!res.ok) {
             setSearchedJobs(null);
+            setSearchedTotal(0);
             return;
           }
-          setSearchedJobs(
-            Array.isArray((data as { jobs?: unknown }).jobs)
-              ? (data as { jobs: JobRecord[] }).jobs
-              : null
-          );
+          const jobsArr = Array.isArray((data as { jobs?: unknown }).jobs)
+            ? ((data as { jobs: JobRecord[] }).jobs as JobRecord[])
+            : [];
+          const total = typeof (data as { total?: unknown }).total === "number" ? (data as { total: number }).total : jobsArr.length;
+          setSearchedJobs(jobsArr);
+          setSearchedTotal(total);
         } catch {
-          if (!cancelled) setSearchedJobs(null);
+          if (!cancelled) {
+            setSearchedJobs(null);
+            setSearchedTotal(0);
+          }
         } finally {
           if (!cancelled) setSearchLoading(false);
         }
@@ -205,18 +216,18 @@ export default function HomePage() {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [appFetch, search, searchStatus]);
+  }, [PAGE_SIZE, appFetch, currentPage, search, searchStatus]);
 
   const useServerPagination = !search.trim() && !searchStatus;
   const baseJobs = searchedJobs !== null ? searchedJobs : jobs;
 
   const totalPages = useServerPagination
     ? Math.max(1, Math.ceil(totalJobsCount / PAGE_SIZE))
-    : Math.max(1, Math.ceil(baseJobs.length / PAGE_SIZE));
+    : Math.max(1, Math.ceil((searchedJobs !== null ? searchedTotal : baseJobs.length) / PAGE_SIZE));
   const currentPageSafe = Math.min(currentPage, totalPages);
   const startIndex = (currentPageSafe - 1) * PAGE_SIZE;
   const endIndex = startIndex + PAGE_SIZE;
-  const paginatedJobs = useServerPagination ? jobs : baseJobs.slice(startIndex, endIndex);
+  const paginatedJobs = useServerPagination ? jobs : baseJobs;
 
   useEffect(() => {
     setCurrentPage(1);
@@ -768,8 +779,9 @@ export default function HomePage() {
     s != null && String(s).trim() !== "" ? String(s).trim() : "—";
 
   const formatPostedAt = (postedAt: string | null | undefined) => {
-    if (!postedAt?.trim()) return null;
-    const s = postedAt.trim();
+    if (postedAt == null) return null;
+    const s = String(postedAt).trim();
+    if (!s) return null;
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
       try {
         return new Date(s + "T00:00:00Z").toLocaleDateString();

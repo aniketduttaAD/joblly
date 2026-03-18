@@ -73,6 +73,8 @@ CREATE INDEX IF NOT EXISTS jobs_company_idx                    ON public.jobs US
 CREATE INDEX IF NOT EXISTS jobs_title_trgm_idx                 ON public.jobs USING gin (title    gin_trgm_ops); -- ilike '%…%' search
 CREATE INDEX IF NOT EXISTS jobs_company_trgm_idx               ON public.jobs USING gin (company  gin_trgm_ops); -- ilike '%…%' search
 CREATE INDEX IF NOT EXISTS jobs_location_trgm_idx              ON public.jobs USING gin (location gin_trgm_ops); -- ilike '%…%' search
+-- Combined fuzzy search index (best for multi-field queries)
+CREATE INDEX IF NOT EXISTS jobs_search_text_trgm_idx           ON public.jobs USING gin ((concat_ws(' ', coalesce(title,''), coalesce(company,''), coalesce(location,''))) gin_trgm_ops);
 
 -- Uploaded resumes (PDF text + parsed JSON)
 CREATE TABLE IF NOT EXISTS public.resumes (

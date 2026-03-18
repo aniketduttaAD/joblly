@@ -30,11 +30,13 @@ export async function GET(req: NextRequest) {
   const status = VALID_STATUSES.has(statusParam as JobStatus)
     ? (statusParam as JobStatus)
     : undefined;
+  const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10) || 50));
+  const offset = Math.max(0, parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
 
   if (!q && !status) return json(req, { jobs: [], total: 0 });
 
   try {
-    const result = await searchJobsByTitleCompany(identity.userId, q, status);
+    const result = await searchJobsByTitleCompany(identity.userId, q, status, { limit, offset });
     return json(req, result);
   } catch (err) {
     console.error("GET /jobs-search error:", err);

@@ -167,12 +167,20 @@ export function formatJobFull(job: JobRecord): string {
     `Experience: ${escapeHtml(emptyStr(job.experience))}`,
     `Salary: ${formatSalary(job)}`,
   ];
-  if (job.postedAt?.trim()) {
-    const p = job.postedAt.trim();
-    const postedStr = /^\d{4}-\d{2}-\d{2}$/.test(p)
-      ? new Date(p + "T00:00:00Z").toLocaleDateString()
-      : p;
-    lines.push(`Posted: ${postedStr}`);
+  if (job.postedAt != null) {
+    const raw = job.postedAt as unknown;
+    const s =
+      typeof raw === "string"
+        ? raw.trim()
+        : raw instanceof Date
+        ? raw.toISOString()
+        : String(raw).trim();
+    if (s) {
+      const postedStr = /^\d{4}-\d{2}-\d{2}$/.test(s)
+        ? new Date(s + "T00:00:00Z").toLocaleDateString()
+        : s;
+      lines.push(`Posted: ${postedStr}`);
+    }
   }
   if (job.product?.trim()) lines.push(`Product: ${escapeHtml(job.product.trim())}`);
   if (job.seniority?.trim()) lines.push(`Seniority: ${escapeHtml(job.seniority.trim())}`);

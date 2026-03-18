@@ -209,40 +209,65 @@ export async function deleteJobWithCheck(id: string, ownerId: string): Promise<b
 export async function searchJobsByTitleCompany(
   ownerId: string,
   q: string,
-  status?: JobStatus
+  status?: JobStatus,
+  options?: { limit?: number; offset?: number }
 ): Promise<{ jobs: JobRecord[]; total: number }> {
   const sql = getSql();
   const trimmed = q.trim();
+  const limit = Math.min(100, Math.max(1, options?.limit ?? 50));
+  const offset = Math.max(0, options?.offset ?? 0);
 
   if (!trimmed) {
     if (!status) return { jobs: [], total: 0 };
     const rows = (await sql`
-      select * from public.jobs
+      select *, count(*) over()::int as total_count
+      from public.jobs
       where owner_id = ${ownerId} and status = ${status}
       order by applied_at desc
-    `) as Record<string, unknown>[];
-    return { jobs: rows.map(rowToJobRecord), total: rows.length };
+      limit ${limit} offset ${offset}
+    `) as Array<Record<string, unknown> & { total_count?: number }>;
+    const total = rows[0]?.total_count ?? 0;
+    return { jobs: rows.map(rowToJobRecord), total };
   }
 
-  const terms = trimmed.split(/\s+/).filter(Boolean).slice(0, 8);
-  const patterns = terms.map((t) => `%${t.replace(/[%_]/g, "\\$&")}%`);
+  try {
+    await sql`select set_limit(${0.12})`;
+  } catch {
+  }
 
-  // AND across terms, OR across fields per term
+  const qText = trimmed.slice(0, 256);
+  const qLang = "english";
+
   const rows = (await sql`
-    select * from public.jobs
-    where owner_id = ${ownerId}
-      and (${status ? sql`status = ${status}` : sql`true`})
-      and (
-        ${patterns.map(
-          (p) =>
-            sql`(title ilike ${p} escape '\\' or company ilike ${p} escape '\\' or location ilike ${p} escape '\\')`
-        )}
-      )
-    order by applied_at desc
-  `) as Record<string, unknown>[];
+    with candidates as (
+      select
+        *,
+        greatest(
+          similarity(coalesce(title, ''), ${qText}),
+          similarity(coalesce(company, ''), ${qText}),
+          similarity(coalesce(location, ''), ${qText}),
+          similarity(concat_ws(' ', coalesce(title,''), coalesce(company,''), coalesce(location,'')), ${qText})
+        ) as score
+      from public.jobs
+      where owner_id = ${ownerId}
+        and (${status ? sql`status = ${status}` : sql`true`})
+        and (
+          to_tsvector(${qLang}, concat_ws(' ', coalesce(title,''), coalesce(company,''), coalesce(location,'')))
+            @@ websearch_to_tsquery(${qLang}, ${qText})
+          or title % ${qText}
+          or company % ${qText}
+          or location % ${qText}
+          or concat_ws(' ', coalesce(title,''), coalesce(company,''), coalesce(location,'')) % ${qText}
+        )
+    )
+    select *, count(*) over()::int as total_count
+    from candidates
+    order by score desc, applied_at desc
+    limit ${limit} offset ${offset}
+  `) as Array<Record<string, unknown> & { total_count?: number }>;
 
-  const jobs = rows.map(rowToJobRecord);
-  return { jobs, total: jobs.length };
+  const total = rows[0]?.total_count ?? 0;
+  return { jobs: rows.map(rowToJobRecord), total };
 }
 
 export async function readJobsStats(ownerId: string): Promise<{

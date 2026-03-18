@@ -154,12 +154,20 @@ export function formatJobFull(job: JobRecord): string {
     `Experience: ${escapeHtml(emptyStr(job.experience))}`,
     `Salary: ${formatSalary(job)}`,
   ];
-  if (job.postedAt?.trim()) {
-    const p = job.postedAt.trim();
-    const postedStr = /^\d{4}-\d{2}-\d{2}$/.test(p)
-      ? new Date(p + "T00:00:00Z").toLocaleDateString()
-      : p;
-    lines.push(`Posted: ${postedStr}`);
+  if (job.postedAt != null) {
+    const raw = job.postedAt as unknown;
+    const s =
+      typeof raw === "string"
+        ? raw.trim()
+        : raw instanceof Date
+        ? raw.toISOString()
+        : String(raw).trim();
+    if (s) {
+      const postedStr = /^\d{4}-\d{2}-\d{2}$/.test(s)
+        ? new Date(s + "T00:00:00Z").toLocaleDateString()
+        : s;
+      lines.push(`Posted: ${postedStr}`);
+    }
   }
   if (job.product?.trim()) lines.push(`Product: ${escapeHtml(job.product.trim())}`);
   if (job.seniority?.trim()) lines.push(`Seniority: ${escapeHtml(job.seniority.trim())}`);
@@ -202,23 +210,13 @@ export function getHelpText(): string {
     "",
     "<b>/login</b> &lt;email&gt; — Send a one-time login code to your email address.",
     "",
-    "<b>/logout</b> — Clear your Telegram session for this chat.",
-    "",
-    "<b>/lock</b> — Lock this chat session (requires login again).",
+    "<b>/logout</b> — Sign out and lock this chat (requires /login again).",
     "",
     "<b>/add</b> — Add a job. Send this, then paste the job description in your next message.",
     "",
     "<b>/list</b> — List latest 20 jobs. Each item is clickable for full details.",
     "",
     "<b>/search</b> — Search jobs. Send /search, then your search query.",
-    "",
-    "<b>/job</b> &lt;id&gt; — Show a single job by id.",
-    "",
-    "<b>/delete</b> &lt;id&gt; — Delete a job by id.",
-    "",
-    "<b>/delete_bulk</b> &lt;id1&gt; &lt;id2&gt; … — Delete multiple jobs.",
-    "",
-    "<b>/status</b> &lt;id&gt; &lt;status&gt; — Update job status (applied, screening, interview, offer, rejected, withdrawn).",
     "",
     "/help — Show this message",
   ].join("\n");
