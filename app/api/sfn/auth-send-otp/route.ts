@@ -21,13 +21,14 @@ const SEND_LIMITS = {
   ip: { maxAttempts: 10, windowMinutes: 60, blockMinutes: 60 },
 } as const;
 
-async function sendOtpEmail(email: string, code: string, timeoutMs = 8000) {
+async function sendOtpEmail(email: string, code: string, timeoutMs = 10000) {
   const apiKey = (process.env.RESEND_API_KEY ?? "").trim();
-  const from = (process.env.RESEND_FROM_EMAIL ?? "").trim();
+  const rawFrom = (process.env.RESEND_FROM_EMAIL ?? "").trim();
 
-  if (!apiKey || !from) {
-    throw new Error("OTP delivery is not configured.");
+  if (!apiKey || !rawFrom) {
+    throw new Error("OTP delivery is not configured (missing RESEND_API_KEY or RESEND_FROM_EMAIL).");
   }
+  const from = rawFrom.includes("<") ? rawFrom : `Joblly <${rawFrom}>`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort("otp-email-timeout"), timeoutMs);
@@ -171,10 +172,20 @@ export async function POST(req: NextRequest) {
   await incrementRateLimit("send_otp", "email", email, SEND_LIMITS.email);
   await incrementRateLimit("send_otp", "ip", ip, SEND_LIMITS.ip);
 
-  sendOtpEmail(email, code).catch(async (error) => {
+  // Must await — Vercel terminates the function on response return,
+  // so fire-and-forget promises never complete in serverless.
+  try {
+    await sendOtpEmail(email, code);
+  } catch (error) {
     console.error("auth-send-otp delivery error:", error);
-    await deleteOtpRows(email);
-  });
+    // Roll back the saved row so the user can retry cleanly
+    await deleteOtpRows(email).catch(() => {});
+    return json(
+      req,
+      { error: "Failed to send the verification email. Please try again." },
+      { status: 500 }
+    );
+  }
 
   return json(req, {
     userId: email,
