@@ -29,14 +29,29 @@ function normalizeOrigin(value: string | null | undefined): string {
   return (value ?? "").trim().replace(/\/$/, "");
 }
 
+function getAllowedSiteOrigins(): string[] {
+  const raw = (process.env.SITE_URL ?? "").trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((v): v is string => typeof v === "string")
+      .map((v) => normalizeOrigin(v))
+      .filter((v) => v && v !== "*");
+  } catch {
+    return [];
+  }
+}
+
 function assertSameOriginForStateChange(req: NextRequest) {
   const origin = normalizeOrigin(req.headers.get("origin"));
   if (!origin) return;
 
-  const siteUrl = normalizeOrigin(process.env.SITE_URL ?? "");
-  if (!siteUrl) return;
+  const allowed = getAllowedSiteOrigins();
+  if (allowed.length === 0) return;
 
-  if (origin !== siteUrl) {
+  if (!allowed.includes(origin)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 }
@@ -94,8 +109,8 @@ async function proxy(req: NextRequest, fn: string) {
   }
 
   if (!headers.has("origin")) {
-    const siteUrl = normalizeOrigin(process.env.SITE_URL ?? "");
-    if (siteUrl) headers.set("origin", siteUrl);
+    const allowed = getAllowedSiteOrigins();
+    if (allowed[0]) headers.set("origin", allowed[0]);
   }
 
   const init: RequestInit = {
