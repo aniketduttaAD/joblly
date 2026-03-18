@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleCors, errorResponse } from "../_shared/cors.ts";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeadersForRequest } from "../_shared/cors.ts";
 
 function buildSystemPrompt(): string {
   return `You write concise, professional cover letters using ONLY the provided resume data, job metadata, and job description.
@@ -130,7 +130,7 @@ Write a tailored cover letter for this application.
 
   return new Response(stream, {
     headers: {
-      ...corsHeaders,
+      ...corsHeadersForRequest(req),
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",

@@ -12,16 +12,16 @@ const ACCESS_TOKEN_STORAGE_KEY = "jobtracker_access_token";
 
 function readStoredAccessToken(): string | null {
   if (typeof window === "undefined") return null;
-  return window.sessionStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+  return window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
 }
 
 function storeAccessToken(token: string | null) {
   if (typeof window === "undefined") return;
   if (!token) {
-    window.sessionStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+    window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
     return;
   }
-  window.sessionStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
+  window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, token);
 }
 
 function withAccessToken(init: RequestInit = {}): RequestInit {

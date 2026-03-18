@@ -625,6 +625,10 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
         return;
       }
       const removed = await deleteJobs(ids, linkedUser.userId);
+      if (removed === 0) {
+        await sendTelegramMessage(chatId, "No matching jobs were found for those ids.");
+        return;
+      }
       await sendTelegramMessage(chatId, `✅ Deleted ${removed} job(s).`);
       return;
     }

@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleCors, errorResponse } from "../_shared/cors.ts";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeadersForRequest } from "../_shared/cors.ts";
 
 function buildSystemPrompt(): string {
   return `You analyze what is missing in a candidate's resume for a specific job using ONLY the provided parsed resume data and job description.
@@ -125,7 +125,7 @@ Deno.serve(async (req: Request) => {
 
   return new Response(stream, {
     headers: {
-      ...corsHeaders,
+      ...corsHeadersForRequest(req),
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",

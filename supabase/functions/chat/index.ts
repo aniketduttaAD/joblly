@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { handleCors, errorResponse } from "../_shared/cors.ts";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeadersForRequest } from "../_shared/cors.ts";
 
 const MAX_TOKENS_PER_REQUEST = 15_000;
 const MONTH_INDEX: Record<string, number> = {
@@ -218,7 +218,7 @@ Deno.serve(async (req: Request) => {
 
   return new Response(stream, {
     headers: {
-      ...corsHeaders,
+      ...corsHeadersForRequest(req),
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",

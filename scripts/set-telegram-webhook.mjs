@@ -24,7 +24,7 @@ function loadEnv() {
 loadEnv();
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-const baseUrl = process.env.BASE_URL || process.argv[2];
+const baseUrl = process.env.SITE_URL || process.argv[2];
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
 
@@ -35,8 +35,8 @@ if (!token) {
 
 if (!supabaseUrl && !baseUrl) {
   console.error(
-    "Neither NEXT_PUBLIC_SUPABASE_URL nor BASE_URL is set.\n" +
-      "Set NEXT_PUBLIC_SUPABASE_URL in .env (recommended) or pass BASE_URL as an argument."
+    "Neither NEXT_PUBLIC_SUPABASE_URL nor SITE_URL is set.\n" +
+      "Set NEXT_PUBLIC_SUPABASE_URL in .env (recommended) or pass SITE_URL as an argument."
   );
   process.exit(1);
 }
@@ -47,7 +47,7 @@ if (supabaseUrl) {
   console.log("Using Supabase Edge Function URL.");
 } else {
   webhookUrl = `${baseUrl.replace(/\/$/, "")}/api/telegram/webhook`;
-  console.log("Using legacy BASE_URL.");
+  console.log("Using legacy SITE_URL.");
 }
 
 if (secret) {

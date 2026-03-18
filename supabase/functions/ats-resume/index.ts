@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { handleCors, errorResponse, corsHeaders } from "../_shared/cors.ts";
+import { handleCors, errorResponse, corsHeadersForRequest } from "../_shared/cors.ts";
 
 interface ResumeData {
   name: string;
@@ -229,7 +229,7 @@ Deno.serve(async (req: Request) => {
 
   return new Response(stream, {
     headers: {
-      ...corsHeaders,
+      ...corsHeadersForRequest(req),
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",

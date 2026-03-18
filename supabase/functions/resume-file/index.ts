@@ -3,7 +3,9 @@ import { handleCors, errorResponse } from "../_shared/cors.ts";
 import { getUserFromRequest, createAdminClient } from "../_shared/auth.ts";
 import { getResumeFileInfo } from "../_shared/db.ts";
 import { validateUUID } from "../_shared/validation.ts";
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeadersForRequest } from "../_shared/cors.ts";
+
+declare const Deno: { serve: (handler: (req: Request) => Response | Promise<Response>) => void };
 
 Deno.serve(async (req: Request) => {
   const cors = handleCors(req);
@@ -31,7 +33,7 @@ Deno.serve(async (req: Request) => {
 
     return new Response(arrayBuffer, {
       headers: {
-        ...corsHeaders,
+        ...corsHeadersForRequest(req),
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="${encodeURIComponent(fileInfo.fileName)}"`,
         "Cache-Control": "private, max-age=3600",
