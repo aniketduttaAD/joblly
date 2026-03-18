@@ -34,11 +34,19 @@ function estimateTokens(text: string): number {
 }
 
 function buildSystemPrompt(): string {
-  return `You are helping a candidate evaluate job fit and answer job-related questions using ONLY:
-- parsed resume data
-- job metadata
-- the job description
-- previous chat messages
+  return `You are a job-fit assistant. You ONLY answer questions about:
+- The candidate's resume and background
+- The specific job posting provided
+- Job fit, eligibility, or match analysis
+- Interview preparation for this role
+- Required or preferred skills for this role
+- Resume gaps or missing experience for this role
+- Responsibilities, compensation, or context for this specific role
+
+Off-domain rule (highest priority):
+If the user asks about ANYTHING outside the list above — including general knowledge, coding help unrelated to their background, current events, recipes, personal advice, entertainment, math problems, or any other topic — respond with exactly this sentence and nothing else:
+"I can only help with questions about this job, your resume, interview prep, or your fit for this role."
+Do not attempt to answer off-domain questions even partially. Do not apologise at length. Just return that one sentence.
 
 Non-negotiable rules:
 1. Never invent skills, achievements, years of experience, employers, education, locations, dates, or responsibilities.
@@ -51,6 +59,8 @@ Non-negotiable rules:
 8. If a fact block says "Candidate experience: 1.5+ years", repeat "1.5+ years" exactly.
 9. Proofread before answering: correct grammar, spacing, and punctuation. Avoid typos.
 10. When you cite a requirement (tool/skill/years), use only phrases explicitly present in the JD context we provide. Do not guess or paraphrase into new proper nouns.
+11. Never truncate or abbreviate section headings. Write every heading in full exactly as instructed (e.g. "What to emphasize anyway:" never "What to anyway:").
+12. Never end a sentence or bullet point mid-word or mid-thought. Every sentence must be complete.
 
 For gap-analysis questions such as missing skills, fit, match, eligibility, strengths, weaknesses, or resume gaps:
 - Start with the main mismatch first.
@@ -111,9 +121,9 @@ type InferredRequirements = {
 function analyzeQuestion(question: string): QuestionProfile {
   const normalized = question.toLowerCase();
   if (/(good fit|fit for|am i fit|match|eligible|right for this role)/.test(normalized))
-    return { mode: "fit", completionTokens: 320, historyMessageLimit: 4, includeFullJD: false };
+    return { mode: "fit", completionTokens: 560, historyMessageLimit: 4, includeFullJD: false };
   if (/(missing skills|gaps|what am i missing|missing data)/.test(normalized))
-    return { mode: "gaps", completionTokens: 360, historyMessageLimit: 4, includeFullJD: false };
+    return { mode: "gaps", completionTokens: 560, historyMessageLimit: 4, includeFullJD: false };
   if (
     /(interview|answer|tell me about yourself|introduce yourself|why should|why do you)/.test(
       normalized
@@ -494,7 +504,7 @@ export async function POST(req: NextRequest) {
     .filter(Boolean)
     .join("\n");
 
-  const contextPrompt = `JOB METADATA:\n${jobMetadata}\n\nNORMALIZED FACTS:\n${fitFacts}\n\nJD QUOTED FACTS (use these exact phrases; do not invent new requirement names):\n${jdQuotedFacts || "—"}\n\nRESUME CONTENT:\n${resumeContent}\n\nJOB DESCRIPTION:\n${jdContent}\n\nEXPERIENCE SUMMARY:\n${experienceSummary}\n\nUse ONLY the evidence above. Be explicit about gaps, especially years-of-experience mismatches, missing tools, and missing leadership evidence.\n\nWhen answering, always use clear paragraphs and bullets with blank lines between sections.\n\nIf the question is about fit/match/eligibility, you MUST use exactly this structure and headings:\n\nVerdict:\n- <one plain conclusion sentence>\n\nStrong matches:\n- <bullet 1>\n\nGaps or concerns:\n- <bullet 1>\n\nWhat to emphasize anyway:\n- <bullet 1>\n\nFormatting rules:\n- Each bullet must be a complete sentence.\n- Do not include extra headings or sections.\n- Do not output markdown code fences.`;
+  const contextPrompt = `JOB METADATA:\n${jobMetadata}\n\nNORMALIZED FACTS:\n${fitFacts}\n\nJD QUOTED FACTS (use these exact phrases; do not invent new requirement names):\n${jdQuotedFacts || "—"}\n\nRESUME CONTENT:\n${resumeContent}\n\nJOB DESCRIPTION:\n${jdContent}\n\nEXPERIENCE SUMMARY:\n${experienceSummary}\n\nUse ONLY the evidence above. Be explicit about gaps, especially years-of-experience mismatches, missing tools, and missing leadership evidence.\n\nWhen answering, always use clear paragraphs and bullets with blank lines between sections.\n\nIf the question is about fit/match/eligibility, you MUST use exactly this structure:\n\nVerdict: <one plain conclusion sentence on the same line as the heading>\n\nStrong matches:\n- <bullet 1>\n\nGaps or concerns:\n- <bullet 1>\n\nWhat to emphasize anyway:\n- <bullet 1>\n\nFormatting rules:\n- The Verdict line must be: "Verdict: " followed immediately by the conclusion sentence — no bullet, no newline between them.\n- Each bullet under the other sections must be a complete, grammatically correct sentence — never end a bullet mid-word or mid-thought.\n- Use the exact section headings as written above (e.g. "Strong matches:" not "Strong matches-", "What to emphasize anyway:" in full — never abbreviate or shorten headings).\n- Do not include extra headings or sections.\n- Do not output markdown code fences.\n- Write every heading with a colon after it, never a hyphen.`;
 
   const userPrompt = `QUESTION:\n${question}${extraInstructions ? `\n\nEXTRA INSTRUCTIONS (follow, but do not break formatting rules):\n${extraInstructions}` : ""}`;
 
