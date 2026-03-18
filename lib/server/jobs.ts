@@ -232,8 +232,7 @@ export async function searchJobsByTitleCompany(
 
   try {
     await sql`select set_limit(${0.12})`;
-  } catch {
-  }
+  } catch {}
 
   const qText = trimmed.slice(0, 256);
   const qLang = "english";

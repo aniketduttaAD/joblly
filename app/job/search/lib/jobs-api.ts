@@ -165,7 +165,7 @@ export async function fetchJobsFromApi(filters: JobFilters): Promise<JobListing[
   const res = await fetch(url, {
     method: "GET",
     headers: {
-      "X-Jobs-Api-Key": apiKey,
+      "X-Api-Key": apiKey,
       "Content-Type": "application/json",
     },
   });
@@ -173,7 +173,15 @@ export async function fetchJobsFromApi(filters: JobFilters): Promise<JobListing[
   const responseData = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    const message = (responseData as { error?: string }).error ?? "Search failed";
+    const detail =
+      Array.isArray((responseData as { detail?: unknown }).detail) &&
+      (responseData as { detail: Array<{ msg?: string }> }).detail.length > 0
+        ? (responseData as { detail: Array<{ msg?: string }> }).detail
+            .map((d) => d.msg)
+            .filter(Boolean)
+            .join("; ")
+        : undefined;
+    const message = detail || (responseData as { error?: string }).error || "Search failed";
     if (res.status === 401) throw new Error("Invalid API key. Please check your key in Settings.");
     if (res.status === 429) throw new Error("Rate limit exceeded. Try again later.");
     throw new Error(message);

@@ -481,7 +481,9 @@ export async function POST(req: NextRequest) {
     .join("\n");
 
   const jdQuotedFacts = [
-    inferredRequirements.requiredYears ? `JD says required experience: "${inferredRequirements.requiredYears}"` : "",
+    inferredRequirements.requiredYears
+      ? `JD says required experience: "${inferredRequirements.requiredYears}"`
+      : "",
     inferredRequirements.requiredSkills.length
       ? `JD explicitly mentions skills/tools: ${inferredRequirements.requiredSkills
           .slice(0, 24)

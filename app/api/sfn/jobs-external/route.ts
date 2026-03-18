@@ -12,13 +12,14 @@ export async function OPTIONS(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const cors = corsHeaders(req);
 
-  const apiKey = req.headers.get("x-jobs-api-key") ?? process.env.JOBS_API_KEY ?? "";
+  const apiKey =
+    req.headers.get("x-api-key") ??
+    req.headers.get("x-jobs-api-key") ??
+    process.env.JOBS_API_KEY ??
+    "";
 
   if (!apiKey) {
-    return NextResponse.json(
-      { error: "Missing X-Jobs-Api-Key header" },
-      { status: 400, headers: cors }
-    );
+    return NextResponse.json({ error: "Missing X-Api-Key header" }, { status: 400, headers: cors });
   }
 
   const url = new URL(req.url);
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
     try {
       const targetUrl = `${EXTERNAL_API_BASE}/jobs?${params.toString()}`;
       const res = await fetch(targetUrl, {
-        headers: { "X-Jobs-Api-Key": apiKey, Accept: "application/json" },
+        headers: { "X-Api-Key": apiKey, Accept: "application/json" },
       });
 
       if (res.status === 429) {

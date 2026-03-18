@@ -26,7 +26,9 @@ async function sendOtpEmail(email: string, code: string, timeoutMs = 10000) {
   const rawFrom = (process.env.RESEND_FROM_EMAIL ?? "").trim();
 
   if (!apiKey || !rawFrom) {
-    throw new Error("OTP delivery is not configured (missing RESEND_API_KEY or RESEND_FROM_EMAIL).");
+    throw new Error(
+      "OTP delivery is not configured (missing RESEND_API_KEY or RESEND_FROM_EMAIL)."
+    );
   }
   const from = rawFrom.includes("<") ? rawFrom : `Joblly <${rawFrom}>`;
 

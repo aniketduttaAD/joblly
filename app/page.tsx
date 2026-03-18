@@ -196,7 +196,10 @@ export default function HomePage() {
           const jobsArr = Array.isArray((data as { jobs?: unknown }).jobs)
             ? ((data as { jobs: JobRecord[] }).jobs as JobRecord[])
             : [];
-          const total = typeof (data as { total?: unknown }).total === "number" ? (data as { total: number }).total : jobsArr.length;
+          const total =
+            typeof (data as { total?: unknown }).total === "number"
+              ? (data as { total: number }).total
+              : jobsArr.length;
           setSearchedJobs(jobsArr);
           setSearchedTotal(total);
         } catch {

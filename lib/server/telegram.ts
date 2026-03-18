@@ -160,8 +160,8 @@ export function formatJobFull(job: JobRecord): string {
       typeof raw === "string"
         ? raw.trim()
         : raw instanceof Date
-        ? raw.toISOString()
-        : String(raw).trim();
+          ? raw.toISOString()
+          : String(raw).trim();
     if (s) {
       const postedStr = /^\d{4}-\d{2}-\d{2}$/.test(s)
         ? new Date(s + "T00:00:00Z").toLocaleDateString()
