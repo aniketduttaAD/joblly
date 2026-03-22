@@ -21,7 +21,16 @@ const MONTH_INDEX: Record<string, number> = {
   dec: 11,
 };
 
-type QuestionMode = "fit" | "gaps" | "interview" | "skills" | "general";
+type QuestionMode =
+  | "fit"
+  | "gaps"
+  | "cover_letter"
+  | "linkedin"
+  | "email"
+  | "interview"
+  | "skills"
+  | "general";
+
 type QuestionProfile = {
   mode: QuestionMode;
   completionTokens: number;
@@ -37,16 +46,25 @@ function buildSystemPrompt(): string {
   return `You are a job-fit assistant. You ONLY answer questions about:
 - The candidate's resume and background
 - The specific job posting provided
-- Job fit, eligibility, or match analysis
+- Job fit, eligibility, or match analysis (including "am I a good fit", "should I apply", "strong candidate")
 - Interview preparation for this role
 - Required or preferred skills for this role
-- Resume gaps or missing experience for this role
+- Resume gaps or missing experience for this role ("what is missing", "what am I lacking", gaps vs JD)
+- Drafting a cover letter or application letter for this specific role
+- Drafting a LinkedIn message, connection note, or InMail to a hiring manager or recruiter for this role
+- Drafting a professional email to a hiring manager or recruiter for this role
 - Responsibilities, compensation, or context for this specific role
 
 Off-domain rule (highest priority):
-If the user asks about ANYTHING outside the list above — including general knowledge, coding help unrelated to their background, current events, recipes, personal advice, entertainment, math problems, or any other topic — respond with exactly this sentence and nothing else:
-"I can only help with questions about this job, your resume, interview prep, or your fit for this role."
-Do not attempt to answer off-domain questions even partially. Do not apologise at length. Just return that one sentence.
+If the user asks about ANYTHING outside the list above — including general knowledge, coding help unrelated to their background, current events, recipes, personal advice, entertainment, math problems, or any other topic — reply with exactly this (two short sentences, nothing before or after):
+"I'm not able to help with that. I can assist only with this role, your resume, interview preparation, or how your background compares to the job posting."
+Do not answer off-domain questions even partially. Do not add apologies, explanations, or alternatives.
+
+Voice and tone (on-domain answers):
+- Use a professional, formal tone that still reads like a clear human wrote it: direct sentences, natural word order, no filler ("Certainly!", "I'd be happy to", "Great question").
+- Be precise and grounded: tie conclusions to specific resume or JD details; avoid vague stock phrases repeated across answers.
+- Sound confident but measured — not robotic, not salesy. Vary openings when appropriate instead of repeating the same template every time.
+- Every answer must be grammatically complete, with correct subject–verb agreement and full clauses (no trailing fragments like "which are not mentioned in your.").
 
 Non-negotiable rules:
 1. Never invent skills, achievements, years of experience, employers, education, locations, dates, or responsibilities.
@@ -54,7 +72,7 @@ Non-negotiable rules:
 3. Never imply the candidate has a skill unless it appears in the provided data.
 4. If evidence is missing or weak, say it is missing or unclear.
 5. Write in plain, professional language. No hype, no flattery, no placeholder text.
-6. Keep answers concise but useful.
+6. Keep answers concise but useful — include enough context that each point stands alone as a full thought.
 7. Never round 1.5 years up to 15 years. Preserve decimals exactly as provided.
 8. If a fact block says "Candidate experience: 1.5+ years", repeat "1.5+ years" exactly.
 9. Proofread before answering: correct grammar, spacing, and punctuation. Avoid typos.
@@ -62,7 +80,7 @@ Non-negotiable rules:
 11. Never truncate or abbreviate section headings. Write every heading in full exactly as instructed (e.g. "What to emphasize anyway:" never "What to anyway:").
 12. Never end a sentence or bullet point mid-word or mid-thought. Every sentence must be complete.
 
-For gap-analysis questions such as missing skills, fit, match, eligibility, strengths, weaknesses, or resume gaps:
+For fit and gap-analysis (missing skills, what is lacking, good fit, eligibility):
 - Start with the main mismatch first.
 - Be candid about seniority gaps, domain gaps, and missing tools.
 - Separate "Strong matches" from "Gaps or concerns".
@@ -71,7 +89,13 @@ For gap-analysis questions such as missing skills, fit, match, eligibility, stre
 - Give a one-line verdict first.
 - Prefer factual bullets over persuasive language.
 
-For interview-style or general questions:
+For cover letters, LinkedIn messages, and emails:
+- Write in first person as the candidate. Tone: professional, warm, and specific—not generic or robotic.
+- Tie content to this JD and this resume only; do not invent employers, metrics, or skills.
+- Use company and role names from JOB METADATA when present; otherwise use neutral wording without fake names.
+- LinkedIn and email should be concise; cover letters can be fuller but still tight (no filler paragraphs).
+
+For interview-style or other general questions:
 - Answer in first person as the candidate.
 - Stay factual and grounded in the resume.
 
@@ -118,26 +142,169 @@ type InferredRequirements = {
   keywordSet: Set<string>;
 };
 
+/** Detects intent so the model gets the right structure, token budget, and JD depth. Order matters: more specific patterns first. */
 function analyzeQuestion(question: string): QuestionProfile {
   const normalized = question.toLowerCase();
-  if (/(good fit|fit for|am i fit|match|eligible|right for this role)/.test(normalized))
+
+  if (
+    /(cover letter|cover-letter|letter of application|application letter|write (me )?a cover|draft (a )?cover|help (me )?with (my )?cover|cover for this)/.test(
+      normalized
+    )
+  ) {
+    return {
+      mode: "cover_letter",
+      completionTokens: 900,
+      historyMessageLimit: 4,
+      includeFullJD: true,
+    };
+  }
+
+  if (
+    /(cold email|email (to|for) (the )?(hiring|recruiter)|outreach email|write (me )?an email|email (subject|template)|subject line|e-mail (to|for))/.test(
+      normalized
+    )
+  ) {
+    return {
+      mode: "email",
+      completionTokens: 750,
+      historyMessageLimit: 4,
+      includeFullJD: true,
+    };
+  }
+
+  if (
+    /(linkedin|connection request|inmail|in-mail|message (on|for|via) linkedin|linkedin (message|note|dm|post))/.test(
+      normalized
+    )
+  ) {
+    return {
+      mode: "linkedin",
+      completionTokens: 650,
+      historyMessageLimit: 4,
+      includeFullJD: true,
+    };
+  }
+
+  if (
+    /(message to (the )?(hiring manager|recruiter)|note to (the )?recruiter|dm (the )?recruiter|reach out to (the )?(hiring manager|recruiter)|short message to)/.test(
+      normalized
+    ) &&
+    !/email|e-mail/.test(normalized)
+  ) {
+    return {
+      mode: "linkedin",
+      completionTokens: 650,
+      historyMessageLimit: 4,
+      includeFullJD: true,
+    };
+  }
+
+  if (
+    /(good fit|bad fit|am i (a )?fit|fit for|fit for this|a match|eligible|right for (this|the) role|should i apply|worth applying|qualify|qualified|suitable|strong candidate|strong fit|weak fit|do i fit|how (well )?do i fit|will i get|chances of|am i right for|good candidate|decent fit)/.test(
+      normalized
+    )
+  ) {
     return { mode: "fit", completionTokens: 560, historyMessageLimit: 4, includeFullJD: false };
-  if (/(missing skills|gaps|what am i missing|missing data)/.test(normalized))
-    return { mode: "gaps", completionTokens: 560, historyMessageLimit: 4, includeFullJD: false };
+  }
+
+  if (
+    /(missing skills|resume gap|gap(s)?\b|what am i missing|missing data|what is missing|what('s| is) (missing|lacking)|what do i lack|what am i lacking|weakness|weak areas|not enough experience|under-?qualified|areas to improve|what to improve|skills i lack|compare.*(resume|jd))/.test(
+      normalized
+    )
+  ) {
+    return { mode: "gaps", completionTokens: 560, historyMessageLimit: 4, includeFullJD: true };
+  }
+
   if (
     /(interview|answer|tell me about yourself|introduce yourself|why should|why do you)/.test(
       normalized
     )
-  )
+  ) {
     return {
       mode: "interview",
       completionTokens: 650,
       historyMessageLimit: 6,
       includeFullJD: true,
     };
-  if (/(skills|tech stack|technologies|tools)/.test(normalized))
-    return { mode: "skills", completionTokens: 380, historyMessageLimit: 4, includeFullJD: false };
-  return { mode: "general", completionTokens: 500, historyMessageLimit: 5, includeFullJD: true };
+  }
+
+  if (/(skills|tech stack|technologies|tools)/.test(normalized)) {
+    return { mode: "skills", completionTokens: 420, historyMessageLimit: 4, includeFullJD: false };
+  }
+
+  return { mode: "general", completionTokens: 550, historyMessageLimit: 5, includeFullJD: true };
+}
+
+function buildResponseShapeInstructions(profile: QuestionProfile): string {
+  const fitOrGapsBlock = `RESPONSE SHAPE FOR THIS QUESTION (follow exactly):
+
+The user is asking about fit, match, eligibility, strengths vs gaps, "good fit", "should I apply", or what is missing / lacking. Use this structure:
+
+Verdict: <one plain conclusion sentence on the same line as the heading>
+
+Strong matches:
+- <complete sentence 1>
+- <add bullets as needed; each a full sentence>
+
+Gaps or concerns:
+- <complete sentence 1>
+- <add bullets as needed>
+
+What to emphasize anyway:
+- <complete sentence 1>
+- <add bullets as needed>
+
+Rules: "Verdict: " must be immediately followed by the sentence (no bullet on that line). Every bullet is a complete sentence. Headings end with colons. No markdown code fences. Ground every point in the resume or JD text provided.`;
+
+  const coverBlock = `RESPONSE SHAPE FOR THIS QUESTION (follow exactly):
+
+The user wants a cover letter for this application. Write the full letter in first person.
+
+Structure:
+1) Opening: interest in this role at this company (use JOB METADATA company/role when present).
+2) One or two body paragraphs: only achievements, tools, and experience that appear in the resume; connect them to requirements or themes from the JD.
+3) Closing: brief, professional call to action.
+
+Tone: professional and natural—specific, not generic or template-heavy. Do not invent employers, dates, or skills. Do not use bracket placeholders like [Company] when JOB METADATA or the JD gives a real name. Sign with the candidate's name from the resume if available. No meta-commentary before or after the letter. No markdown code fences.`;
+
+  const linkedinBlock = `RESPONSE SHAPE FOR THIS QUESTION (follow exactly):
+
+The user wants a LinkedIn-style message (connection note, InMail, or short DM to hiring manager/recruiter).
+
+Length: about 4–8 short sentences unless they asked for longer. No bullet lists unless they explicitly asked.
+
+Content: greet or open professionally (avoid stacking clichés), name the role and company from metadata/JD when known, one or two concrete lines grounded in the resume that relate to the JD, end with one polite low-pressure ask.
+
+Tone: warm and professional, not robotic or salesy. Do not invent experience. No markdown code fences.`;
+
+  const emailBlock = `RESPONSE SHAPE FOR THIS QUESTION (follow exactly):
+
+The user wants an email to a hiring manager or recruiter.
+
+Format:
+Line 1: Subject: <concise, specific subject line>
+(blank line)
+Email body: greeting, 2–4 short paragraphs in first person, sign-off with the candidate's name if it appears on the resume.
+
+Ground claims in the resume only. Natural business tone—not stiff, not chatty. No markdown code fences.`;
+
+  const defaultBlock = `RESPONSE SHAPE FOR THIS QUESTION:
+
+Answer directly in clear paragraphs (or short bullets if they help). Ground the answer in the resume and JD. Do NOT use the Verdict / Strong matches / Gaps structure unless the user is clearly asking for fit or gap analysis. Be complete: no sentence fragments or trailing cut-offs. No markdown code fences.`;
+
+  switch (profile.mode) {
+    case "fit":
+    case "gaps":
+      return fitOrGapsBlock;
+    case "cover_letter":
+      return coverBlock;
+    case "linkedin":
+      return linkedinBlock;
+    case "email":
+      return emailBlock;
+    default:
+      return defaultBlock;
+  }
 }
 
 function escapeRegExp(value: string) {
@@ -504,7 +671,9 @@ export async function POST(req: NextRequest) {
     .filter(Boolean)
     .join("\n");
 
-  const contextPrompt = `JOB METADATA:\n${jobMetadata}\n\nNORMALIZED FACTS:\n${fitFacts}\n\nJD QUOTED FACTS (use these exact phrases; do not invent new requirement names):\n${jdQuotedFacts || "—"}\n\nRESUME CONTENT:\n${resumeContent}\n\nJOB DESCRIPTION:\n${jdContent}\n\nEXPERIENCE SUMMARY:\n${experienceSummary}\n\nUse ONLY the evidence above. Be explicit about gaps, especially years-of-experience mismatches, missing tools, and missing leadership evidence.\n\nWhen answering, always use clear paragraphs and bullets with blank lines between sections.\n\nIf the question is about fit/match/eligibility, you MUST use exactly this structure:\n\nVerdict: <one plain conclusion sentence on the same line as the heading>\n\nStrong matches:\n- <bullet 1>\n\nGaps or concerns:\n- <bullet 1>\n\nWhat to emphasize anyway:\n- <bullet 1>\n\nFormatting rules:\n- The Verdict line must be: "Verdict: " followed immediately by the conclusion sentence — no bullet, no newline between them.\n- Each bullet under the other sections must be a complete, grammatically correct sentence — never end a bullet mid-word or mid-thought.\n- Use the exact section headings as written above (e.g. "Strong matches:" not "Strong matches-", "What to emphasize anyway:" in full — never abbreviate or shorten headings).\n- Do not include extra headings or sections.\n- Do not output markdown code fences.\n- Write every heading with a colon after it, never a hyphen.`;
+  const responseShape = buildResponseShapeInstructions(questionProfile);
+
+  const contextPrompt = `JOB METADATA:\n${jobMetadata}\n\nNORMALIZED FACTS:\n${fitFacts}\n\nJD QUOTED FACTS (use these exact phrases; do not invent new requirement names):\n${jdQuotedFacts || "—"}\n\nRESUME CONTENT:\n${resumeContent}\n\nJOB DESCRIPTION:\n${jdContent}\n\nEXPERIENCE SUMMARY:\n${experienceSummary}\n\nUse ONLY the evidence above. Be explicit about gaps when relevant: years-of-experience mismatches, missing tools, and missing leadership evidence.\n\nWriting quality: professional and natural — not stiff, not repetitive, not robotic. Ground each point in the resume or JD (name tools, responsibilities, or requirements where possible). Every sentence must be complete and grammatically correct.\n\n${responseShape}\n\nWhen using multiple sections, put a blank line between sections.`;
 
   const userPrompt = `QUESTION:\n${question}${extraInstructions ? `\n\nEXTRA INSTRUCTIONS (follow, but do not break formatting rules):\n${extraInstructions}` : ""}`;
 
@@ -546,7 +715,12 @@ export async function POST(req: NextRequest) {
           body: JSON.stringify({
             model: "gpt-4o",
             messages: [{ role: "system", content: buildSystemPrompt() }, ...baseMessages],
-            temperature: 0.25,
+            temperature:
+              questionProfile.mode === "cover_letter" ||
+              questionProfile.mode === "linkedin" ||
+              questionProfile.mode === "email"
+                ? 0.32
+                : 0.25,
             top_p: 0.9,
             frequency_penalty: 0.2,
             presence_penalty: 0,
