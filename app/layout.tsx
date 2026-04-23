@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { GlobalApiKeyBar } from "./components/global-api-key-bar";
 import { AppAuthProvider } from "./components/app-auth-provider";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
   title: "Job Search & Tracker",
@@ -53,6 +54,7 @@ export default function RootLayout({
           <GlobalApiKeyBar />
           {children}
         </AppAuthProvider>
+        <Analytics />
       </body>
     </html>
   );
