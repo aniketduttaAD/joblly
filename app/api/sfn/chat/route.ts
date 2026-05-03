@@ -1,5 +1,8 @@
 import { NextRequest } from "next/server";
 import { corsHeaders, handlePreflight } from "@/lib/server/cors";
+import { createAiChatSseStream } from "@/lib/server/ai-completion";
+import { GEMINI_CHAT_MODEL, OPENAI_CHAT_MODEL } from "@/lib/server/ai-models";
+import { resolveAiCredentials } from "@/lib/server/resolve-ai-credentials";
 
 export const runtime = "nodejs";
 
@@ -28,6 +31,7 @@ type QuestionMode =
   | "linkedin"
   | "email"
   | "interview"
+  | "salary"
   | "skills"
   | "general";
 
@@ -54,6 +58,7 @@ function buildSystemPrompt(): string {
 - Drafting a LinkedIn message, connection note, or InMail to a hiring manager or recruiter for this role
 - Drafting a professional email to a hiring manager or recruiter for this role
 - Responsibilities, compensation, or context for this specific role
+- Salary range, pay band, CTC/LPA, equity or bonus **when discussed in relation to this job posting** — including what the posting states, what is missing, and how to interpret ranges honestly (separate facts from estimates)
 
 Off-domain rule (highest priority):
 If the user asks about ANYTHING outside the list above — including general knowledge, coding help unrelated to their background, current events, recipes, personal advice, entertainment, math problems, or any other topic — reply with exactly this (two short sentences, nothing before or after):
@@ -79,6 +84,13 @@ Non-negotiable rules:
 10. When you cite a requirement (tool/skill/years), use only phrases explicitly present in the JD context we provide. Do not guess or paraphrase into new proper nouns.
 11. Never truncate or abbreviate section headings. Write every heading in full exactly as instructed (e.g. "What to emphasize anyway:" never "What to anyway:").
 12. Never end a sentence or bullet point mid-word or mid-thought. Every sentence must be complete.
+
+For salary, compensation, or pay-range questions:
+- Lead with what the **job description or structured salary fields** actually say (quote or paraphrase closely; include currency and time period if given).
+- If the posting does **not** state numbers, say so plainly before any general discussion.
+- You may add **clearly labeled** general-market context (typical bands by role seniority and location) only as rough orientation — not as fact about this employer — and avoid narrow fake precision.
+- Never invent a specific salary, bonus, or equity figure not supported by the provided JD or metadata.
+- If the candidate asks what they should ask for or counter-offer, ground advice in their resume seniority and the JD’s stated level; stay conservative when data is thin.
 
 For fit and gap-analysis (missing skills, what is lacking, good fit, eligibility):
 - Start with the main mismatch first.
@@ -126,9 +138,15 @@ interface JDData {
   extracted?: {
     roleTitle?: string;
     company?: string;
+    location?: string;
     requiredSkills?: string[];
     preferredSkills?: string[];
     responsibilities?: string[];
+    salaryMin?: number | null;
+    salaryMax?: number | null;
+    salaryCurrency?: string | null;
+    salaryPeriod?: string | null;
+    salaryEstimated?: boolean;
   };
 }
 
@@ -216,6 +234,19 @@ function analyzeQuestion(question: string): QuestionProfile {
   }
 
   if (
+    /(salary|compensation|pay range|pay package|\bctc\b|\blpa\b|gross pay|base pay|take[- ]?home|hourly pay|annual pay|equity|rsu|bonus|how much (does|do|will) (this|the) (role|job|position) pay|expected pay|wage range|stipend|remuneration|package offered|pay scale)/.test(
+      normalized
+    )
+  ) {
+    return {
+      mode: "salary",
+      completionTokens: 780,
+      historyMessageLimit: 5,
+      includeFullJD: true,
+    };
+  }
+
+  if (
     /(interview|answer|tell me about yourself|introduce yourself|why should|why do you)/.test(
       normalized
     )
@@ -288,6 +319,24 @@ Email body: greeting, 2–4 short paragraphs in first person, sign-off with the 
 
 Ground claims in the resume only. Natural business tone—not stiff, not chatty. No markdown code fences.`;
 
+  const salaryBlock = `RESPONSE SHAPE FOR THIS QUESTION (follow exactly):
+
+The user is asking about salary, pay, compensation, CTC/LPA, or similar for this role.
+
+What the posting indicates:
+- <one or more bullets; each a complete sentence. If the JD or structured fields give numbers, state them with currency and period (e.g. yearly). If nothing is stated, say so clearly here.>
+
+What is not stated or is ambiguous:
+- <complete sentences; say "not specified in the provided text" when applicable.>
+
+Practical read for you (candidate):
+- <2–4 short bullets: how to interpret what we know, what to verify in process, and how your resume level compares to the JD seniority cue — without inventing employer-specific numbers.>
+
+Caveats:
+- <one short bullet reminding that final offer depends on employer, geography, and negotiation; keep tone factual, not hype.>
+
+Rules: No markdown code fences. Every bullet is a complete sentence. Do not fabricate numeric ranges not supported by the JD or structured salary fields; general-market bands must read as estimates, not facts about this company.`;
+
   const defaultBlock = `RESPONSE SHAPE FOR THIS QUESTION:
 
 Answer directly in clear paragraphs (or short bullets if they help). Ground the answer in the resume and JD. Do NOT use the Verdict / Strong matches / Gaps structure unless the user is clearly asking for fit or gap analysis. Be complete: no sentence fragments or trailing cut-offs. No markdown code fences.`;
@@ -302,6 +351,8 @@ Answer directly in clear paragraphs (or short bullets if they help). Ground the 
       return linkedinBlock;
     case "email":
       return emailBlock;
+    case "salary":
+      return salaryBlock;
     default:
       return defaultBlock;
   }
@@ -509,12 +560,80 @@ function formatJobMetadata(jdData: JDData): string {
     `Role title: ${extracted.roleTitle || "Unknown"}`,
     `Company: ${extracted.company || "Unknown"}`,
   ];
+  if (extracted.location?.trim()) lines.push(`Location: ${extracted.location.trim()}`);
   if (extracted.requiredSkills?.length)
     lines.push(`Required skills: ${extracted.requiredSkills.join(", ")}`);
   if (extracted.preferredSkills?.length)
     lines.push(`Preferred skills: ${extracted.preferredSkills.join(", ")}`);
   if (extracted.responsibilities?.length)
     lines.push(`Responsibilities: ${extracted.responsibilities.join(" | ")}`);
+  const smin = extracted.salaryMin;
+  const smax = extracted.salaryMax;
+  if (smin != null || smax != null) {
+    const cur = (extracted.salaryCurrency ?? "").trim() || "unspecified currency";
+    const per = (extracted.salaryPeriod ?? "yearly").trim() || "yearly";
+    const est = extracted.salaryEstimated ? " (estimated in job record)" : "";
+    lines.push(
+      `Structured salary (from job record): ${smin ?? "—"} to ${smax ?? "—"} ${cur}, period: ${per}${est}`
+    );
+  }
+  return lines.join("\n");
+}
+
+function extractSalarySnippetsFromJd(jdText: string, maxSnippets = 6): string[] {
+  const text = jdText.replace(/\s+/g, " ").trim();
+  if (text.length < 15) return [];
+
+  const patterns: RegExp[] = [
+    /\$[\d,.]+\s*(?:-|–|to)\s*\$?[\d,.]+(?:\s*(?:k|K|USD|usd))?/g,
+    /(?:₹|INR|USD|EUR|GBP)\s*[\d,.]+\s*(?:-|–|to|\/|\s)\s*[\d,.]*/gi,
+    /\d[\d,]*\s*(?:-|–|to)\s*\d[\d,]*\s*(?:k|K|lpa|LPA|lakhs?|Lakhs?|crores?|Cr\.?)/gi,
+    /(?:CTC|LPA|base salary|salary range|compensation package|pay range|gross (?:annual )?pay)\s*[:\-]?\s*[^\n.]{10,140}/gi,
+    /(?:competitive|attractive|market(?:-|\s)rate)\s+(?:salary|compensation|package)[^\n.]{0,100}/gi,
+    /(?:per hour|\/hr|hourly)\s*(?:rate|pay)?\s*[:\-]?\s*[^\n.]{5,80}/gi,
+  ];
+
+  const found: string[] = [];
+  const seen = new Set<string>();
+  for (const re of patterns) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null && found.length < maxSnippets) {
+      const s = m[0].trim().replace(/\s+/g, " ").slice(0, 220);
+      if (s.length < 10) continue;
+      const key = s.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      found.push(s);
+    }
+  }
+  return found;
+}
+
+function formatSalaryContextForPrompt(jdData: JDData, jdFullText: string): string {
+  const snippets = extractSalarySnippetsFromJd(jdFullText);
+  const lines: string[] = [
+    "SALARY & COMPENSATION CONTEXT (use for pay-related answers; do not invent numbers beyond this):",
+  ];
+  const structured =
+    jdData.extracted?.salaryMin != null ||
+    jdData.extracted?.salaryMax != null ||
+    (jdData.extracted?.salaryCurrency ?? "").trim();
+  if (structured) {
+    lines.push(
+      `- From structured job fields: min=${jdData.extracted?.salaryMin ?? "—"}, max=${jdData.extracted?.salaryMax ?? "—"}, currency=${(jdData.extracted?.salaryCurrency ?? "—").toString()}, period=${(jdData.extracted?.salaryPeriod ?? "yearly").toString()}${jdData.extracted?.salaryEstimated ? " (estimated)" : ""}.`
+    );
+  } else {
+    lines.push("- No structured min/max salary fields were supplied with this request.");
+  }
+  if (snippets.length) {
+    lines.push("- Verbatim or near-verbatim pay-related phrases detected in the JD text:");
+    for (const s of snippets) lines.push(`  • ${s}`);
+  } else {
+    lines.push(
+      "- No explicit pay phrases (currency, LPA, CTC, ranges) were auto-detected in the JD excerpt below; rely on full JD text if present."
+    );
+  }
   return lines.join("\n");
 }
 
@@ -538,15 +657,12 @@ export async function OPTIONS(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const cors = corsHeaders(req);
 
-  const apiKey = (process.env.OPENAI_API_KEY || "").trim();
-  if (!apiKey) {
-    return new Response(
-      JSON.stringify({ error: "OpenAI API key is not configured on the server." }),
-      {
-        status: 500,
-        headers: { ...cors, "Content-Type": "application/json" },
-      }
-    );
+  const creds = resolveAiCredentials(req);
+  if (!creds.ok) {
+    return new Response(JSON.stringify({ error: creds.error }), {
+      status: creds.status,
+      headers: { ...cors, "Content-Type": "application/json" },
+    });
   }
 
   let body: Record<string, unknown>;
@@ -600,6 +716,8 @@ export async function POST(req: NextRequest) {
       ? `RELEVANT SECTIONS:\n\n${(retrievedJDSections as string[]).map((s, i) => `${i + 1}. ${s}`).join("\n\n")}`
       : (() => {
           const fullText = (normalizedJD.content ?? "").replace(/\s+/g, " ").trim();
+          const jdCap =
+            questionProfile.mode === "salary" ? 10_000 : questionProfile.includeFullJD ? 5600 : 0;
           const sections = [
             inferredRequirements.roleTitle ? `ROLE TITLE: ${inferredRequirements.roleTitle}` : "",
             inferredRequirements.requiredYears
@@ -617,7 +735,9 @@ export async function POST(req: NextRequest) {
             inferredRequirements.responsibilityHighlights.length
               ? `RESPONSIBILITIES: ${inferredRequirements.responsibilityHighlights.join(" | ")}`
               : "",
-            questionProfile.includeFullJD ? `FULL JD (TRUNCATED): ${fullText.slice(0, 4000)}` : "",
+            questionProfile.includeFullJD && jdCap > 0
+              ? `FULL JD (TRUNCATED): ${fullText.slice(0, jdCap)}`
+              : "",
           ].filter(Boolean);
           return sections.join("\n\n");
         })();
@@ -673,7 +793,35 @@ export async function POST(req: NextRequest) {
 
   const responseShape = buildResponseShapeInstructions(questionProfile);
 
-  const contextPrompt = `JOB METADATA:\n${jobMetadata}\n\nNORMALIZED FACTS:\n${fitFacts}\n\nJD QUOTED FACTS (use these exact phrases; do not invent new requirement names):\n${jdQuotedFacts || "—"}\n\nRESUME CONTENT:\n${resumeContent}\n\nJOB DESCRIPTION:\n${jdContent}\n\nEXPERIENCE SUMMARY:\n${experienceSummary}\n\nUse ONLY the evidence above. Be explicit about gaps when relevant: years-of-experience mismatches, missing tools, and missing leadership evidence.\n\nWriting quality: professional and natural — not stiff, not repetitive, not robotic. Ground each point in the resume or JD (name tools, responsibilities, or requirements where possible). Every sentence must be complete and grammatically correct.\n\n${responseShape}\n\nWhen using multiple sections, put a blank line between sections.`;
+  const salaryContext = formatSalaryContextForPrompt(normalizedJD, normalizedJD.content ?? "");
+
+  const contextPrompt = `${salaryContext}
+
+JOB METADATA:
+${jobMetadata}
+
+NORMALIZED FACTS:
+${fitFacts}
+
+JD QUOTED FACTS (use these exact phrases; do not invent new requirement names):
+${jdQuotedFacts || "—"}
+
+RESUME CONTENT:
+${resumeContent}
+
+JOB DESCRIPTION:
+${jdContent}
+
+EXPERIENCE SUMMARY:
+${experienceSummary}
+
+Use ONLY the evidence above. Be explicit about gaps when relevant: years-of-experience mismatches, missing tools, and missing leadership evidence. For pay questions, prioritize the SALARY & COMPENSATION CONTEXT block and quoted JD phrases before any general-market estimate.
+
+Writing quality: professional and natural — not stiff, not repetitive, not robotic. Ground each point in the resume or JD (name tools, responsibilities, or requirements where possible). Every sentence must be complete and grammatically correct.
+
+${responseShape}
+
+When using multiple sections, put a blank line between sections.`;
 
   const userPrompt = `QUESTION:\n${question}${extraInstructions ? `\n\nEXTRA INSTRUCTIONS (follow, but do not break formatting rules):\n${extraInstructions}` : ""}`;
 
@@ -705,62 +853,24 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      const encode = (s: string) => new TextEncoder().encode(s);
-      try {
-        const aiRes = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({
-            model: "gpt-4o",
-            messages: [{ role: "system", content: buildSystemPrompt() }, ...baseMessages],
-            temperature:
-              questionProfile.mode === "cover_letter" ||
-              questionProfile.mode === "linkedin" ||
-              questionProfile.mode === "email"
-                ? 0.32
-                : 0.25,
-            top_p: 0.9,
-            frequency_penalty: 0.2,
-            presence_penalty: 0,
-            max_tokens: questionProfile.completionTokens,
-            stream: true,
-          }),
-        });
+  const temperature =
+    questionProfile.mode === "salary"
+      ? 0.22
+      : questionProfile.mode === "cover_letter" ||
+          questionProfile.mode === "linkedin" ||
+          questionProfile.mode === "email"
+        ? 0.32
+        : 0.25;
 
-        if (!aiRes.ok) {
-          const errorText = await aiRes.text().catch(() => "");
-          throw new Error(errorText || "Failed to generate chat response");
-        }
-        if (!aiRes.body) throw new Error("No response stream from OpenAI");
-
-        const reader = aiRes.body.getReader();
-        const decoder = new TextDecoder();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          for (const line of chunk.split("\n")) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data: ")) continue;
-            const data = trimmed.slice(6);
-            if (data === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(data);
-              const content = parsed.choices?.[0]?.delta?.content ?? "";
-              if (content) controller.enqueue(encode(`data: ${JSON.stringify({ content })}\n\n`));
-            } catch {
-              /* skip malformed chunk */
-            }
-          }
-        }
-        controller.enqueue(encode("data: [DONE]\n\n"));
-        controller.close();
-      } catch (error) {
-        controller.error(error);
-      }
-    },
+  const model = creds.provider === "openai" ? OPENAI_CHAT_MODEL : GEMINI_CHAT_MODEL;
+  const stream = createAiChatSseStream(creds.provider, creds.apiKey, {
+    model,
+    messages: [{ role: "system", content: buildSystemPrompt() }, ...baseMessages],
+    temperature,
+    topP: 0.9,
+    maxTokens: questionProfile.completionTokens,
+    frequencyPenalty: creds.provider === "openai" ? 0.2 : undefined,
+    presencePenalty: creds.provider === "openai" ? 0 : undefined,
   });
 
   return new Response(stream, {

@@ -3,7 +3,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Briefcase, Sparkles, Search, Lock } from "lucide-react";
+import { Briefcase, Sparkles, Search, Lock, Settings } from "lucide-react";
+import { useState } from "react";
+import { AiSettingsDialog } from "@/app/components/ai-settings-dialog";
 import { useAppAuth } from "@/app/components/app-auth-provider";
 
 const navItems = [
@@ -30,6 +32,7 @@ const navItems = [
 export function GlobalApiKeyBar() {
   const pathname = usePathname();
   const { authRequired, authenticated, signOut, user } = useAppAuth();
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
 
   return (
     <header className="sticky top-0 z-50 border-b border-beige-300 bg-beige-100/95 backdrop-blur supports-[backdrop-filter]:bg-beige-100/80">
@@ -67,17 +70,29 @@ export function GlobalApiKeyBar() {
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {authRequired && authenticated && (
-            <button
-              type="button"
-              onClick={() => {
-                void signOut();
-              }}
-              title={user?.email ? `Signed in as ${user.email}` : "Sign out"}
-              className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-beige-300 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 shadow-sm hover:bg-beige-50 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
-            >
-              <Lock className="h-4 w-4 shrink-0" />
-              <span className="hidden sm:inline">Sign out</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setAiSettingsOpen(true)}
+                title="AI settings"
+                className="inline-flex min-h-[40px] items-center justify-center rounded-lg border border-beige-300 bg-white p-2 text-stone-700 shadow-sm hover:bg-beige-50 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
+              >
+                <Settings className="h-4 w-4 shrink-0" />
+                <span className="sr-only">AI settings</span>
+              </button>
+              <AiSettingsDialog open={aiSettingsOpen} onOpenChange={setAiSettingsOpen} />
+              <button
+                type="button"
+                onClick={() => {
+                  void signOut();
+                }}
+                title={user?.email ? `Signed in as ${user.email}` : "Sign out"}
+                className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-beige-300 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 shadow-sm hover:bg-beige-50 focus:outline-none focus:ring-2 focus:ring-orange-brand/20"
+              >
+                <Lock className="h-4 w-4 shrink-0" />
+                <span className="hidden sm:inline">Sign out</span>
+              </button>
+            </>
           )}
         </div>
       </div>

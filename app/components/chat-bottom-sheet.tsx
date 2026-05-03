@@ -8,6 +8,7 @@ import { Input } from "@/app/job/search/components/ui/input";
 import { useResumeStore } from "@/app/job/search/stores/resume-store";
 import type { Resume } from "@/app/job/search/types";
 import { sfn } from "@/lib/supabase-api";
+import { GEMINI_CHAT_MODEL, OPENAI_CHAT_MODEL } from "@/lib/ai-chat-models";
 
 const SHEET_WIDTH = 420;
 const SHEET_HEIGHT = 640;
@@ -19,7 +20,44 @@ type JobMetadata = {
   location?: string;
   companyPublisher?: string;
   aboutCompany?: string;
+  salaryMin?: number | null;
+  salaryMax?: number | null;
+  salaryCurrency?: string | null;
+  salaryPeriod?: string | null;
+  salaryEstimated?: boolean;
 };
+
+function buildChatJdExtracted(metadata: JobMetadata | null) {
+  if (!metadata) {
+    return {
+      roleTitle: "",
+      company: undefined as string | undefined,
+      location: undefined as string | undefined,
+      requiredSkills: [] as string[],
+      preferredSkills: [] as string[],
+      responsibilities: [] as string[],
+    };
+  }
+  return {
+    roleTitle: metadata.title ?? "",
+    company: metadata.company,
+    location: metadata.location,
+    requiredSkills: [] as string[],
+    preferredSkills: [] as string[],
+    responsibilities: [] as string[],
+    ...(metadata.salaryMin != null ||
+    metadata.salaryMax != null ||
+    (metadata.salaryCurrency ?? "").trim()
+      ? {
+          salaryMin: metadata.salaryMin,
+          salaryMax: metadata.salaryMax,
+          salaryCurrency: metadata.salaryCurrency ?? undefined,
+          salaryPeriod: metadata.salaryPeriod ?? undefined,
+          salaryEstimated: metadata.salaryEstimated,
+        }
+      : {}),
+  };
+}
 
 type SessionMessage = {
   id: string;
@@ -253,6 +291,7 @@ export function ChatBottomSheet({
       const jdText = await ensureJobDescription();
       const response = await fetch(sfn("chat"), {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -260,13 +299,7 @@ export function ChatBottomSheet({
           resumeData: buildAiResumePayload(session.resumeData),
           jdData: {
             content: jdText,
-            extracted: {
-              roleTitle: session.jobMetadata?.title || "",
-              company: session.jobMetadata?.company || undefined,
-              requiredSkills: [],
-              preferredSkills: [],
-              responsibilities: [],
-            },
+            extracted: buildChatJdExtracted(session.jobMetadata),
           },
           question,
           chatHistory: session.messages.map((message) => ({
@@ -316,6 +349,7 @@ export function ChatBottomSheet({
       const jdText = await ensureJobDescription();
       const response = await fetch(sfn(endpoint), {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -384,6 +418,10 @@ export function ChatBottomSheet({
             ) : (
               <p className="text-xs text-stone-500">Session-only chat. Nothing is saved.</p>
             )}
+            <p className="mt-1 max-w-[min(360px,85vw)] text-[11px] leading-snug text-stone-400">
+              Job chat uses fixed models: OpenAI {OPENAI_CHAT_MODEL} · Gemini {GEMINI_CHAT_MODEL}{" "}
+              (set in AI settings; not configurable here).
+            </p>
           </div>
           <button
             type="button"
@@ -446,6 +484,16 @@ export function ChatBottomSheet({
                             .filter(Boolean)
                             .join(" · ")}
                         </div>
+                        {jobMetadata?.salaryMin != null || jobMetadata?.salaryMax != null ? (
+                          <p className="mt-1 text-xs text-stone-600">
+                            Saved salary:{" "}
+                            {[jobMetadata.salaryMin, jobMetadata.salaryMax]
+                              .filter((n) => n != null)
+                              .join(" – ")}{" "}
+                            {(jobMetadata.salaryCurrency ?? "").trim() || ""}
+                            {jobMetadata.salaryEstimated ? " (estimated)" : ""}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                   </div>

@@ -1,6 +1,7 @@
 import type { JobRecord } from "@/lib/types";
-
-const JD_PARSE_MODEL = "gpt-4o-mini";
+import type { AiProviderId } from "@/lib/server/ai-cookies";
+import { completeChatJsonText } from "@/lib/server/ai-completion";
+import { GEMINI_PARSE_MODEL, OPENAI_PARSE_MODEL } from "@/lib/server/ai-models";
 const MAX_JD_CHARS = 60_000;
 const OPENAI_TIMEOUT_MS = 45_000;
 const MAX_RETRIES = 2;
@@ -597,7 +598,11 @@ export interface ParseResult {
   _warnings?: { jdTruncated?: boolean; responseTruncated?: boolean };
 }
 
-async function normalizeParseResult(raw: ParseResult, jdText?: string): Promise<ParseResult> {
+async function normalizeParseResult(
+  raw: ParseResult,
+  jdText?: string,
+  provider: AiProviderId = "openai"
+): Promise<ParseResult> {
   const title = capString(normalizeString(raw.title, true), 256, true) as string;
   const company = capString(normalizeString(raw.company, true), 256, true) as string;
   const location = capString(normalizeString(raw.location, true), 256, true) as string;
@@ -625,9 +630,12 @@ async function normalizeParseResult(raw: ParseResult, jdText?: string): Promise<
   const needsSalaryEstimation =
     !hasSalaryFromJD && role && location && experience !== "Not specified";
 
+  const skipOnlineEnrichment = provider === "gemini";
   const [exchangeRates, estimatedSalary] = await Promise.all([
-    needsExchangeRate ? getExchangeRatesToINR() : Promise.resolve(DEFAULT_EXCHANGE_RATES),
-    needsSalaryEstimation
+    needsExchangeRate && !skipOnlineEnrichment
+      ? getExchangeRatesToINR()
+      : Promise.resolve(DEFAULT_EXCHANGE_RATES),
+    needsSalaryEstimation && !skipOnlineEnrichment
       ? estimateSalaryOnline(role, experience, location)
       : Promise.resolve({ min: null, max: null }),
   ]);
@@ -711,37 +719,41 @@ async function normalizeParseResult(raw: ParseResult, jdText?: string): Promise<
   };
 }
 
-async function callOpenAI(content: string, jdWasTruncated: boolean): Promise<ParseResult> {
-  const key = process.env.OPENAI_API_KEY || "";
-  const completion = await withTimeout(
-    fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({
-        model: JD_PARSE_MODEL,
+async function callParseLlm(
+  content: string,
+  jdWasTruncated: boolean,
+  provider: AiProviderId,
+  apiKey: string
+): Promise<ParseResult> {
+  const model = provider === "openai" ? OPENAI_PARSE_MODEL : GEMINI_PARSE_MODEL;
+  let rawContent: string;
+  try {
+    rawContent = await withTimeout(
+      completeChatJsonText(provider, apiKey, {
+        model,
         messages: [
           { role: "system", content: getSystemPrompt() },
           { role: "user", content },
         ],
-        response_format: { type: "json_object" },
         temperature: 0.15,
-        max_tokens: MAX_TOKENS_RESPONSE,
+        maxTokens: MAX_TOKENS_RESPONSE,
       }),
-    }).then((r) => r.json()),
-    OPENAI_TIMEOUT_MS,
-    "Request timeout - parsing took too long"
-  );
+      OPENAI_TIMEOUT_MS,
+      "Request timeout - parsing took too long"
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/content filter|blocked|SAFETY|PROHIBITED/i.test(msg)) {
+      throw new ParseError("Response filtered by content policy");
+    }
+    throw new ParseError(msg || "Failed to parse job description", true);
+  }
 
-  if (!completion?.choices?.length) throw new ParseError("Invalid response structure from OpenAI");
-  const rawContent = completion.choices[0]?.message?.content;
-  if (!rawContent) throw new ParseError("Empty response from OpenAI");
+  if (!rawContent || rawContent.length < 10) {
+    throw new ParseError("Empty response from language model");
+  }
 
-  const finishReason = completion.choices[0]?.finish_reason;
-  const responseTruncated = finishReason === "length";
-  if (finishReason === "content_filter")
-    throw new ParseError("Response filtered by OpenAI content policy");
-  if (finishReason === "stop" && rawContent.length < 10)
-    throw new ParseError("Response too short - likely incomplete");
+  const responseTruncated = false;
 
   try {
     const parsed = JSON.parse(rawContent) as ParseResult;
@@ -761,9 +773,12 @@ async function callOpenAI(content: string, jdWasTruncated: boolean): Promise<Par
   }
 }
 
-export async function parseJobDescription(jdText: string): Promise<ParseResult> {
-  const key = process.env.OPENAI_API_KEY || "";
-  if (!key) throw new ParseError("OpenAI API key is not configured on the server.");
+export async function parseJobDescription(
+  jdText: string,
+  ctx: { provider: AiProviderId; apiKey: string }
+): Promise<ParseResult> {
+  const key = ctx.apiKey?.trim();
+  if (!key) throw new ParseError("API key is not configured for job parsing.");
   if (typeof jdText !== "string") throw new ParseError("Job description must be a string");
   const text = jdText.trim();
   if (!text) throw new ParseError("Job description text is empty");
@@ -771,12 +786,14 @@ export async function parseJobDescription(jdText: string): Promise<ParseResult> 
   const jdWasTruncated = text.length > MAX_JD_CHARS;
   const content = jdWasTruncated ? text.slice(0, MAX_JD_CHARS) : text;
 
-  const parsed = await retryWithBackoff(() => callOpenAI(content, jdWasTruncated));
+  const parsed = await retryWithBackoff(() =>
+    callParseLlm(content, jdWasTruncated, ctx.provider, ctx.apiKey)
+  );
   if (typeof parsed.title !== "string") parsed.title = "";
   if (typeof parsed.company !== "string") parsed.company = "";
   if (typeof parsed.location !== "string") parsed.location = "";
 
-  const normalized = await normalizeParseResult(parsed, text);
+  const normalized = await normalizeParseResult(parsed, text, ctx.provider);
   if (parsed._warnings) normalized._warnings = parsed._warnings;
   return normalized;
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { corsHeaders, handlePreflight } from "@/lib/server/cors";
 import { parseJobDescription, parseResultToJobRecord, ParseError } from "@/lib/server/openai-parse";
+import { resolveAiCredentials } from "@/lib/server/resolve-ai-credentials";
 
 const PARSE_TIMEOUT_MS = 50_000;
 
@@ -10,6 +11,11 @@ export async function OPTIONS(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const cors = corsHeaders(req);
+
+  const creds = resolveAiCredentials(req);
+  if (!creds.ok) {
+    return NextResponse.json({ error: creds.error }, { status: creds.status, headers: cors });
+  }
 
   let body: Record<string, unknown>;
   try {
@@ -27,7 +33,10 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const parsePromise = parseJobDescription(jdText);
+    const parsePromise = parseJobDescription(jdText, {
+      provider: creds.provider,
+      apiKey: creds.apiKey,
+    });
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error("Request timeout")), PARSE_TIMEOUT_MS)
     );

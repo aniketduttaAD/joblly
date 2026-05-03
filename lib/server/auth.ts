@@ -179,6 +179,15 @@ export function clearSessionCookies(): string[] {
   ];
 }
 
+/** HttpOnly cookie with same Site/Secure/Partitioned rules as session cookies. */
+export function buildHttpOnlyCookie(
+  name: string,
+  value: string,
+  options: { maxAgeSeconds?: number; expireNow?: boolean } = {}
+): string {
+  return buildCookie(name, value, options);
+}
+
 export async function getUserFromRequest(
   req: NextRequest
 ): Promise<AuthenticatedUserIdentity | null> {

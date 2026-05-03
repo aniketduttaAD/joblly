@@ -451,7 +451,10 @@ async function handleMessage(chatId: number, text: string): Promise<void> {
         );
         return;
       }
-      const result = await parseJobDescription(text.trim());
+      const result = await parseJobDescription(text.trim(), {
+        provider: "openai",
+        apiKey,
+      });
       const partial = parseResultToJobRecord(result, text.trim());
       const now = new Date().toISOString();
       const job: JobRecord = {

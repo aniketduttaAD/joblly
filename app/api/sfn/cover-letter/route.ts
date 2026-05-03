@@ -1,5 +1,8 @@
 import { NextRequest } from "next/server";
 import { corsHeaders, handlePreflight } from "@/lib/server/cors";
+import { createAiChatSseStream } from "@/lib/server/ai-completion";
+import { GEMINI_SIDE_MODEL, OPENAI_SIDE_MODEL } from "@/lib/server/ai-models";
+import { resolveAiCredentials } from "@/lib/server/resolve-ai-credentials";
 
 export const runtime = "nodejs";
 
@@ -100,15 +103,12 @@ export async function OPTIONS(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const cors = corsHeaders(req);
 
-  const apiKey = (process.env.OPENAI_API_KEY || "").trim();
-  if (!apiKey) {
-    return new Response(
-      JSON.stringify({ error: "OpenAI API key is not configured on the server." }),
-      {
-        status: 500,
-        headers: { ...cors, "Content-Type": "application/json" },
-      }
-    );
+  const creds = resolveAiCredentials(req);
+  if (!creds.ok) {
+    return new Response(JSON.stringify({ error: creds.error }), {
+      status: creds.status,
+      headers: { ...cors, "Content-Type": "application/json" },
+    });
   }
 
   let body: Record<string, unknown>;
@@ -147,58 +147,16 @@ export async function POST(req: NextRequest) {
     .filter(Boolean)
     .join("\n\n");
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      const encode = (value: string) => new TextEncoder().encode(value);
-      try {
-        const response = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({
-            model: "gpt-4o-mini",
-            messages: [
-              { role: "system", content: buildSystemPrompt() },
-              { role: "user", content: userPrompt },
-            ],
-            temperature: 0.35,
-            top_p: 0.9,
-            max_tokens: 700,
-            stream: true,
-          }),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text().catch(() => "");
-          throw new Error(errorText || "Failed to generate cover letter");
-        }
-        if (!response.body) throw new Error("No response stream from OpenAI");
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          for (const line of chunk.split("\n")) {
-            const trimmed = line.trim();
-            if (!trimmed.startsWith("data: ")) continue;
-            const data = trimmed.slice(6);
-            if (data === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(data);
-              const content = parsed.choices?.[0]?.delta?.content ?? "";
-              if (content) controller.enqueue(encode(`data: ${JSON.stringify({ content })}\n\n`));
-            } catch {
-              continue;
-            }
-          }
-        }
-        controller.enqueue(encode("data: [DONE]\n\n"));
-        controller.close();
-      } catch (error) {
-        controller.error(error);
-      }
-    },
+  const model = creds.provider === "openai" ? OPENAI_SIDE_MODEL : GEMINI_SIDE_MODEL;
+  const stream = createAiChatSseStream(creds.provider, creds.apiKey, {
+    model,
+    messages: [
+      { role: "system", content: buildSystemPrompt() },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.35,
+    topP: 0.9,
+    maxTokens: 700,
   });
 
   return new Response(stream, {

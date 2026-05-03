@@ -87,6 +87,11 @@ export default function HomePage() {
     company?: string;
     location?: string;
     companyPublisher?: string;
+    salaryMin?: number | null;
+    salaryMax?: number | null;
+    salaryCurrency?: string | null;
+    salaryPeriod?: string | null;
+    salaryEstimated?: boolean;
   } | null>(null);
 
   const PAGE_SIZE = 20;
@@ -1205,6 +1210,11 @@ export default function HomePage() {
                                 company: job.company,
                                 location: job.location,
                                 companyPublisher: job.companyPublisher ?? undefined,
+                                salaryMin: job.salaryMin,
+                                salaryMax: job.salaryMax,
+                                salaryCurrency: job.salaryCurrency,
+                                salaryPeriod: job.salaryPeriod,
+                                salaryEstimated: job.salaryEstimated,
                               });
                               setChatSheetOpen(true);
                             }}
@@ -1544,6 +1554,11 @@ export default function HomePage() {
                     company: detailJob?.company,
                     location: detailJob?.location,
                     companyPublisher: detailJob?.companyPublisher ?? undefined,
+                    salaryMin: detailJob?.salaryMin,
+                    salaryMax: detailJob?.salaryMax,
+                    salaryCurrency: detailJob?.salaryCurrency,
+                    salaryPeriod: detailJob?.salaryPeriod,
+                    salaryEstimated: detailJob?.salaryEstimated,
                   });
                   setChatSheetOpen(true);
                 }}
