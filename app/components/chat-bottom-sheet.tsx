@@ -418,9 +418,8 @@ export function ChatBottomSheet({
             ) : (
               <p className="text-xs text-stone-500">Session-only chat. Nothing is saved.</p>
             )}
-            <p className="mt-1 max-w-[min(360px,85vw)] text-[11px] leading-snug text-stone-400">
-              Job chat uses fixed models: OpenAI {OPENAI_CHAT_MODEL} · Gemini {GEMINI_CHAT_MODEL}{" "}
-              (set in AI settings; not configurable here).
+            <p className="mt-1 font-mono text-[11px] leading-snug text-stone-400">
+              {OPENAI_CHAT_MODEL} · {GEMINI_CHAT_MODEL}
             </p>
           </div>
           <button

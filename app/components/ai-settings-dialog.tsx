@@ -12,6 +12,7 @@ import {
 import { Button } from "@/app/job/search/components/ui/button";
 import { fetchWithAuth } from "@/lib/auth-client";
 import { sfn } from "@/lib/supabase-api";
+import { Eye, EyeOff } from "lucide-react";
 import { cn } from "@/app/job/search/lib/utils";
 import { GEMINI_CHAT_MODEL, OPENAI_CHAT_MODEL } from "@/lib/ai-chat-models";
 
@@ -22,7 +23,7 @@ type AiSettingsGet = {
   provider: AiProvider;
   hasOpenAiKey: boolean;
   hasGeminiKey: boolean;
-  encryptionConfigured: boolean;
+  encryptionConfigured?: boolean;
 };
 
 type AiSettingsDialogProps = {
@@ -36,13 +37,14 @@ export function AiSettingsDialog({ open, onOpenChange }: AiSettingsDialogProps) 
   const [error, setError] = useState("");
   const [useSystemAi, setUseSystemAi] = useState(true);
   const [provider, setProvider] = useState<AiProvider>("openai");
-  const [encryptionConfigured, setEncryptionConfigured] = useState(true);
   const [hasOpenAiKey, setHasOpenAiKey] = useState(false);
   const [hasGeminiKey, setHasGeminiKey] = useState(false);
   const [openaiInput, setOpenaiInput] = useState("");
   const [geminiInput, setGeminiInput] = useState("");
   const [openaiDirty, setOpenaiDirty] = useState(false);
   const [geminiDirty, setGeminiDirty] = useState(false);
+  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,11 +60,12 @@ export function AiSettingsDialog({ open, onOpenChange }: AiSettingsDialogProps) 
       setProvider(data.provider === "gemini" ? "gemini" : "openai");
       setHasOpenAiKey(Boolean(data.hasOpenAiKey));
       setHasGeminiKey(Boolean(data.hasGeminiKey));
-      setEncryptionConfigured(data.encryptionConfigured !== false);
       setOpenaiInput("");
       setGeminiInput("");
       setOpenaiDirty(false);
       setGeminiDirty(false);
+      setShowOpenaiKey(false);
+      setShowGeminiKey(false);
     } catch {
       setError("Could not load settings.");
     } finally {
@@ -114,17 +117,10 @@ export function AiSettingsDialog({ open, onOpenChange }: AiSettingsDialogProps) 
           <DialogHeader>
             <DialogTitle className="text-stone-800">AI settings</DialogTitle>
             <DialogDescription className="text-stone-600">
-              Choose OpenAI or Gemini, and either the app&apos;s server keys or your own (stored
-              encrypted in an HttpOnly cookie).
+              Pick OpenAI or Gemini and server keys vs your own (stored in an HttpOnly cookie).
             </DialogDescription>
-            <p className="mt-3 rounded-lg border border-beige-300 bg-white/90 px-3 py-2 text-xs leading-relaxed text-stone-600">
-              <span className="font-medium text-stone-700">
-                Job chat models (fixed, not changeable):
-              </span>{" "}
-              with OpenAI the app uses{" "}
-              <code className="rounded bg-beige-200 px-1">{OPENAI_CHAT_MODEL}</code>; with Gemini it
-              uses <code className="rounded bg-beige-200 px-1">{GEMINI_CHAT_MODEL}</code>. Other AI
-              features (parse, cover letter, etc.) may use different models.
+            <p className="mt-2 font-mono text-xs text-stone-600">
+              {provider === "openai" ? OPENAI_CHAT_MODEL : GEMINI_CHAT_MODEL}
             </p>
           </DialogHeader>
         </div>
@@ -144,7 +140,7 @@ export function AiSettingsDialog({ open, onOpenChange }: AiSettingsDialogProps) 
                 <div>
                   <p className="text-sm font-medium text-stone-800">Use app server keys</p>
                   <p className="text-xs text-stone-500">
-                    When off, requests use keys you provide (BYOK).
+                    Turn off to use your own keys — then enter or paste them below.
                   </p>
                 </div>
                 <button
@@ -157,6 +153,8 @@ export function AiSettingsDialog({ open, onOpenChange }: AiSettingsDialogProps) 
                     setGeminiDirty(false);
                     setOpenaiInput("");
                     setGeminiInput("");
+                    setShowOpenaiKey(false);
+                    setShowGeminiKey(false);
                   }}
                   className={cn(
                     "relative h-9 w-16 shrink-0 rounded-full border transition-colors",
@@ -212,12 +210,6 @@ export function AiSettingsDialog({ open, onOpenChange }: AiSettingsDialogProps) 
 
               {!useSystemAi ? (
                 <div className="space-y-4">
-                  {!encryptionConfigured ? (
-                    <p className="text-sm text-amber-800">
-                      Personal keys cannot be stored until the server sets{" "}
-                      <code className="rounded bg-beige-200 px-1">AI_COOKIE_SECRET</code>.
-                    </p>
-                  ) : null}
                   <div>
                     <label
                       className="mb-1 block text-xs font-medium text-stone-600"
@@ -228,18 +220,32 @@ export function AiSettingsDialog({ open, onOpenChange }: AiSettingsDialogProps) 
                         <span className="ml-2 text-stone-400">(saved — type to replace)</span>
                       ) : null}
                     </label>
-                    <input
-                      id="ai-openai-key"
-                      type="password"
-                      autoComplete="off"
-                      value={openaiInput}
-                      onChange={(e) => {
-                        setOpenaiInput(e.target.value);
-                        setOpenaiDirty(true);
-                      }}
-                      className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 outline-none ring-orange-brand/20 focus:ring-2"
-                      placeholder="sk-…"
-                    />
+                    <div className="relative">
+                      <input
+                        id="ai-openai-key"
+                        type={showOpenaiKey ? "text" : "password"}
+                        autoComplete="off"
+                        value={openaiInput}
+                        onChange={(e) => {
+                          setOpenaiInput(e.target.value);
+                          setOpenaiDirty(true);
+                        }}
+                        className="w-full rounded-lg border border-beige-300 bg-white py-2 pl-3 pr-11 text-sm text-stone-800 outline-none ring-orange-brand/20 focus:ring-2"
+                        placeholder="sk-…"
+                      />
+                      <button
+                        type="button"
+                        aria-label={showOpenaiKey ? "Hide OpenAI key" : "Show OpenAI key"}
+                        onClick={() => setShowOpenaiKey((v) => !v)}
+                        className="absolute right-0 top-0 flex h-full w-10 items-center justify-center rounded-r-lg text-stone-500 hover:bg-beige-100 hover:text-stone-800"
+                      >
+                        {showOpenaiKey ? (
+                          <EyeOff className="h-4 w-4 shrink-0" />
+                        ) : (
+                          <Eye className="h-4 w-4 shrink-0" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <label
@@ -251,18 +257,32 @@ export function AiSettingsDialog({ open, onOpenChange }: AiSettingsDialogProps) 
                         <span className="ml-2 text-stone-400">(saved — type to replace)</span>
                       ) : null}
                     </label>
-                    <input
-                      id="ai-gemini-key"
-                      type="password"
-                      autoComplete="off"
-                      value={geminiInput}
-                      onChange={(e) => {
-                        setGeminiInput(e.target.value);
-                        setGeminiDirty(true);
-                      }}
-                      className="w-full rounded-lg border border-beige-300 bg-white px-3 py-2 text-sm text-stone-800 outline-none ring-orange-brand/20 focus:ring-2"
-                      placeholder="AIza…"
-                    />
+                    <div className="relative">
+                      <input
+                        id="ai-gemini-key"
+                        type={showGeminiKey ? "text" : "password"}
+                        autoComplete="off"
+                        value={geminiInput}
+                        onChange={(e) => {
+                          setGeminiInput(e.target.value);
+                          setGeminiDirty(true);
+                        }}
+                        className="w-full rounded-lg border border-beige-300 bg-white py-2 pl-3 pr-11 text-sm text-stone-800 outline-none ring-orange-brand/20 focus:ring-2"
+                        placeholder="AIza…"
+                      />
+                      <button
+                        type="button"
+                        aria-label={showGeminiKey ? "Hide Gemini key" : "Show Gemini key"}
+                        onClick={() => setShowGeminiKey((v) => !v)}
+                        className="absolute right-0 top-0 flex h-full w-10 items-center justify-center rounded-r-lg text-stone-500 hover:bg-beige-100 hover:text-stone-800"
+                      >
+                        {showGeminiKey ? (
+                          <EyeOff className="h-4 w-4 shrink-0" />
+                        ) : (
+                          <Eye className="h-4 w-4 shrink-0" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : null}
